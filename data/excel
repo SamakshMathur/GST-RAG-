@@ -1,0 +1,2 @@
+cp "/Users/adityasingh/Downloads/Database_GST/Sections List.xlsx" data/raw/excel/
+file "data/raw/excel/Sections List.xlsx"
