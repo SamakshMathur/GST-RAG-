@@ -17,17 +17,35 @@ app = FastAPI(
     description="In-house GST knowledge assistant"
 )
 
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"], # Explicitly allow frontend origin
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---------- Request / Response ----------
+from typing import List, Dict, Any
 
 # ---------- Request / Response ----------
 class QuestionRequest(BaseModel):
     question: str
 
 
+class Source(BaseModel):
+    source: str
+    page: int
+
+
 class AnswerResponse(BaseModel):
     answer: str
     confidence: float
     intent: str
-    sources: str
+    sources: List[Source]
 
 
 # ---------- Load Retriever ONCE ----------
@@ -53,7 +71,7 @@ def ask_question(req: QuestionRequest):
     # Retrieval
     chunks = retriever.search(
         query=question,
-        top_k=5,
+        top_k=8,
         allowed_sources=route["use_sources"]
     )
 
@@ -63,9 +81,25 @@ def ask_question(req: QuestionRequest):
     # Final Answer (Phase 9 + 10 + 11 logic)
     final_answer = build_final_answer(question, context, chunks)
 
+    # Extract unique sources
+    seen_sources = set()
+    source_list = []
+    for c in chunks:
+        # Create a unique key for deduplication
+        key = (c.get("source", "Unknown"), c.get("page", 0))
+        if key not in seen_sources:
+            seen_sources.add(key)
+            page_val = c.get("page")
+            safe_page = int(page_val) if page_val is not None else 0
+            source_list.append({
+                "source": c.get("source", "Unknown"),
+                "page": safe_page
+            })
+
     return {
         "answer": final_answer,
-        "confidence": intent_info.get("confidence", 0.5),
+        "confidence": 0.95 if final_answer and "I cannot find" not in final_answer else 0.0,
         "intent": intent,
-        "sources": "See answer text"
+        "sources": source_list,
+        "reasoning": reasoning  # Passing real reasoning to frontend
     }

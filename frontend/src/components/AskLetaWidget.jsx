@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, Send, Sparkles, FileText, ChevronRight, Terminal } from 'lucide-react';
 import LetaResponse from './LetaResponse';
+import NeuralLoader from './NeuralLoader';
 
 const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -17,7 +18,7 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
     setResponse(null);
 
     try {
-      const res = await fetch('http://localhost:8000/ask', {
+      const res = await fetch('http://127.0.0.1:8000/ask', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -41,11 +42,11 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
       setResponse({
         confidence: data.confidence || 0.95, // Backend might not send confidence, default high
         answer: data.answer,
-        reasoning: {
-          interpretation: "Analysis based on provided GST documents.",
-          provisions: [], // We might need to extract these if backend doesn't send structure
-          deduction: "Derived from context matching.",
-          limitations: "Legal advice should be verified by a professional."
+        reasoning: data.reasoning || {
+          interpretation: "Detailed Analysis included in the main answer.",
+          provisions: [], 
+          deduction: "Please refer to the detailed response above.",
+          limitations: "Always verify with official notifications."
         },
         citations: data.sources ? data.sources.map(s => `${s.source} (Page ${s.page})`) : []
       });
@@ -133,7 +134,9 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
                 {/* Content Container */}
                 <div className="flex-1 overflow-y-auto p-6 md:p-10 custom-scrollbar bg-[#020202]">
                    {/* Chat Interface */}
-                   {!response ? (
+                   {isLoading ? (
+                      <NeuralLoader />
+                   ) : !response ? (
                      <div className="max-w-4xl mx-auto">
                         <div className="text-center mb-12 mt-8">
                           <h1 className="text-2xl md:text-3xl font-bold text-white mb-4 font-mono uppercase tracking-tight">
@@ -160,23 +163,15 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
                              <span className="text-[10px] text-gray-600 font-mono uppercase">Batch Process: Ready</span>
                              <button
                                 onClick={handleAsk}
-                                disabled={isLoading || !query.trim()}
+                                disabled={!query.trim()}
                                 className={`flex items-center gap-2 px-6 py-2 font-mono font-bold text-xs uppercase tracking-widest border transition-all ${
-                                  isLoading || !query.trim()
+                                  !query.trim()
                                     ? 'bg-gray-900 border-gray-800 text-gray-600 cursor-not-allowed'
                                     : 'bg-sentinel-green/10 border-sentinel-green text-sentinel-green hover:bg-sentinel-green hover:text-white'
                                 }`}
                               >
-                                {isLoading ? (
-                                  <>
-                                    <span className="animate-pulse">PROCESSING...</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Send size={14} />
-                                    EXECUTE_ANALYSIS
-                                  </>
-                                )}
+                                  <Send size={14} />
+                                  EXECUTE_ANALYSIS
                               </button>
                           </div>
                         </div>
@@ -198,7 +193,7 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
                      </div>
                    ) : (
                      <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-bottom-5 duration-300">
-                        <LetaResponse response={response} isDark={true} />
+                        <LetaResponse data={response} isDark={true} />
                         <div className="mt-8 text-center bg-[#050A10] border border-white/10 p-4 max-w-sm mx-auto">
                            <button 
                              onClick={() => setResponse(null)}

@@ -5,6 +5,8 @@ import CitationList from './CitationList';
 import LetaExplainability from './LetaExplainability';
 import Button from './Button';
 import { FileText, AlignLeft, ShieldCheck } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const LetaResponse = ({ data, isDark = false }) => {
   const [citationMode, setCitationMode] = useState(false);
@@ -35,28 +37,7 @@ const LetaResponse = ({ data, isDark = false }) => {
         </div>
         
         <div className="flex gap-2">
-            <button 
-                onClick={() => setCitationMode(false)}
-                className={`p-1.5 rounded-sm transition-colors border ${
-                  !citationMode 
-                    ? (isDark ? 'bg-sentinel-blue/20 border-sentinel-blue text-white' : 'bg-white shadow text-sentinel-blue border-transparent') 
-                    : (isDark ? 'border-transparent text-gray-500 hover:text-white hover:bg-white/5' : 'text-gray-400 hover:text-gray-600 border-transparent')
-                }`}
-                title="Full Response"
-            >
-                <AlignLeft size={16} />
-            </button>
-            <button 
-                onClick={() => setCitationMode(true)}
-                className={`p-1.5 rounded-sm transition-colors border ${
-                  citationMode 
-                    ? (isDark ? 'bg-sentinel-blue/20 border-sentinel-blue text-white' : 'bg-white shadow text-sentinel-blue border-transparent') 
-                    : (isDark ? 'border-transparent text-gray-500 hover:text-white hover:bg-white/5' : 'text-gray-400 hover:text-gray-600 border-transparent')
-                }`}
-                title="Citations Only"
-            >
-                <FileText size={16} />
-            </button>
+            {/* Citation toggle removed as per user request */}
         </div>
       </div>
 
@@ -67,27 +48,35 @@ const LetaResponse = ({ data, isDark = false }) => {
             <div className={`prose prose-sm md:prose-base max-w-none font-sans leading-relaxed ${
                isDark ? 'text-gray-300 prose-invert prose-headings:font-mono prose-headings:uppercase prose-strong:text-white' : 'text-gray-700'
             }`}>
-              {data.answer.split('\n').map((para, i) => (
-                <p key={i} className="mb-4">{para}</p>
-              ))}
+              <ReactMarkdown 
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({node, ...props}) => <h1 className="text-xl font-bold mt-6 mb-4" {...props} />,
+                  h2: ({node, ...props}) => <h2 className="text-lg font-bold mt-5 mb-3" {...props} />,
+                  h3: ({node, ...props}) => <h3 className="text-base font-bold mt-4 mb-2" {...props} />,
+                  ul: ({node, ...props}) => <ul className="list-disc list-outside ml-5 mb-4 space-y-2" {...props} />,
+                  ol: ({node, ...props}) => <ol className="list-decimal list-outside ml-5 mb-4 space-y-2" {...props} />,
+                  li: ({node, ...props}) => <li className="pl-1" {...props} />,
+                  p: ({node, ...props}) => <p className="mb-4" {...props} />,
+                  strong: ({node, ...props}) => <strong className="font-bold text-sentinel-blue dark:text-white" {...props} />,
+                }}
+              >
+                {data.answer}
+              </ReactMarkdown>
             </div>
             
             <div className="mt-8 pt-8 border-t border-white/5">
                 <LetaExplainability reasoning={data.reasoning} isDark={isDark} />
             </div>
+            {/* 
             <div className="mt-8">
                 <CitationList citations={data.citations} isDark={isDark} />
-            </div>
+            </div> 
+            */}
           </>
         ) : (
            <div className="py-4">
-              <h3 className={`font-bold mb-4 font-mono uppercase text-sm tracking-wider ${isDark ? 'text-white' : 'text-sentinel-blue'}`}>
-                 // STATUTORY_REFERENCE_INDEX
-              </h3>
-               <CitationList citations={data.citations} isDark={isDark} />
-               <p className={`mt-8 text-xs font-mono border-t pt-4 ${isDark ? 'text-gray-500 border-white/10' : 'text-gray-400 border-gray-100'}`}>
-                 // NOTE: CITATION_RELEVANCE_SCORE &gt; 0.85
-               </p>
+              {/* Citations Mode hidden */}
            </div>
         )}
       </div>
