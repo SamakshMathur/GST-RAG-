@@ -5,26 +5,35 @@ def route_query(question: str) -> dict:
     intent_info = classify_intent(question)
     intent = intent_info["intent"]
 
+    # Source filtering based on file extensions in the source path
+    # We use file extensions usually: .pdf, .docx, .xlsx
+
     if intent == "form_lookup":
-        return {"use_sources": ["docx"], "mode": "text"}
+        # Forms might be in PDF or DOCX
+        return {"use_sources": [".docx", ".pdf"], "mode": "text"}
 
     if intent == "rate_comparison":
-        return {"use_sources": ["excel"], "mode": "structured"}
+        # Comparisons often need tables -> Excel
+        return {"use_sources": [".xlsx", ".xls"], "mode": "structured"}
 
     if intent == "rate_lookup":
-        return {"use_sources": ["excel", "pdf"], "mode": "hybrid"}
+        # Rates can be in notifications (PDF) or schedules (Excel)
+        return {"use_sources": [".xlsx", ".xls", ".pdf"], "mode": "hybrid"}
 
     if intent == "aar_lookup":
-        return {"use_sources": ["pdf"], "mode": "text"}
+        # Rulings are PDFs
+        return {"use_sources": [".pdf"], "mode": "text"}
 
     if intent == "jobwork_rate":
-        return {"use_sources": ["pdf"], "mode": "text"}
+        return {"use_sources": [".pdf"], "mode": "text"}
 
     if intent == "act_section_lookup":
-        return {"use_sources": ["excel"], "mode": "structured"}
+        # Acts can be PDFs or Excels
+        return {"use_sources": [".xlsx", ".xls", ".pdf"], "mode": "structured"}
 
     if intent == "procedure":
-        return {"use_sources": ["docx", "pdf"], "mode": "text"}
+        return {"use_sources": [".docx", ".pdf"], "mode": "text"}
 
     # --- FALLBACK ---
-    return {"use_sources": ["pdf", "docx", "excel"], "mode": "general"}
+    # Search everything
+    return {"use_sources": [".pdf", ".docx", ".xlsx", ".xls"], "mode": "general"}

@@ -9,30 +9,58 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [response, setResponse] = useState(null);
 
-  // Mock API Call (Same logic as before)
-  const handleAsk = () => {
+  // Real API Call to LETA Backend
+  const handleAsk = async () => {
     if (!query.trim()) return;
 
     setIsLoading(true);
     setResponse(null);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setResponse({
-        confidence: 0.92,
-        answer: `[MOCK RESPONSE FOR ${domain.toUpperCase()}] \n\nBased on the relevant provisions of the ${domain.toUpperCase()} Act, the query regarding "${query.substring(0, 20)}..." interprets as follows... \n\n(This is a placeholder response. Real LETA backend integration would occur here.)`,
-        reasoning: {
-          interpretation: `Analysis of user query within ${domain.toUpperCase()} context.`,
-          provisions: [`Section 123 of ${domain.toUpperCase()} Act`, "Notification 45/2024"],
-          deduction: "The statutory reading suggests compliance is mandatory under given conditions.",
-          limitations: "General advisory only."
+    try {
+      const res = await fetch('http://localhost:8000/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        citations: [
-          `${domain.toUpperCase()} Act, Section 12`,
-          "Relevant Notification"
-        ]
+        body: JSON.stringify({
+          question: query,
+          intent: "general" // Optional, backend handles it
+        }),
       });
-    }, 2000);
+
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`);
+      }
+
+      const data = await res.json();
+      
+      // Backend returns: { answer: "...", reasoning: "...", sources: [...] }
+      // We map it to the frontend expected format if needed, but it looks somewhat consistent.
+      // Let's ensure the mapping is robust.
+      
+      setResponse({
+        confidence: data.confidence || 0.95, // Backend might not send confidence, default high
+        answer: data.answer,
+        reasoning: {
+          interpretation: "Analysis based on provided GST documents.",
+          provisions: [], // We might need to extract these if backend doesn't send structure
+          deduction: "Derived from context matching.",
+          limitations: "Legal advice should be verified by a professional."
+        },
+        citations: data.sources ? data.sources.map(s => `${s.source} (Page ${s.page})`) : []
+      });
+
+    } catch (error) {
+      console.error("LETA API Error:", error);
+      setResponse({
+        confidence: 0.0,
+        answer: `Error connecting to LETA Backend. \n\nDetails: ${error.message}\n\nPlease ensure the backend server is running on port 8000.`,
+        reasoning: {},
+        citations: []
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

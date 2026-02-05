@@ -20,3 +20,10 @@ yarn-error.log*
 
 # OS
 Thumbs.db
+
+# RAG Data
+rag-backend/RAG_INFORMATION_DATABASE/
+rag-backend/data/
+rag-backend/vectordb/index.faiss
+rag-backend/vectordb/index.meta.json
+rag-backend/__pycache__/
