@@ -27,6 +27,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.api import documents
+app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
+
 
 # ---------- Request / Response ----------
 from typing import List, Dict, Any
@@ -56,6 +59,10 @@ retriever = Retriever(
 
 
 # ---------- Endpoint ----------
+@app.get("/")
+def health_check():
+    return {"status": "active", "message": "LETA Backend is Running normally"}
+
 @app.post("/ask", response_model=AnswerResponse)
 def ask_question(req: QuestionRequest):
 
@@ -71,7 +78,7 @@ def ask_question(req: QuestionRequest):
     # Retrieval
     chunks = retriever.search(
         query=question,
-        top_k=8,
+        top_k=3000,
         allowed_sources=route["use_sources"]
     )
 
@@ -79,7 +86,16 @@ def ask_question(req: QuestionRequest):
     context = build_context(chunks)
 
     # Final Answer (Phase 9 + 10 + 11 logic)
-    final_answer = build_final_answer(question, context, chunks)
+    # Answer Generation (With Reasoning Metadata)
+    result = build_final_answer(question, context, chunks)
+    
+    # Check if result is a dict (standard path now) or string (fallback safety)
+    if isinstance(result, dict):
+        final_answer = result.get("content", "")
+        reasoning = result.get("reasoning", None)
+    else:
+        final_answer = result
+        reasoning = None
 
     # Extract unique sources
     seen_sources = set()

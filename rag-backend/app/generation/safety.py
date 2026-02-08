@@ -4,12 +4,11 @@ def apply_safety_guards(answer: str, confidence: float, sources: str) -> str:
     """
 
     # Very low confidence → refuse politely
+    # Very low confidence → refuse politely
     if confidence < 0.45:
         return (
             "⚠️ The system could not determine a reliable answer "
-            "based on the provided documents.\n\n"
-            f"{sources}\n"
-            f"Confidence: {round(confidence, 2)}"
+            "based on the provided documents."
         )
 
     # Medium confidence → warn user
@@ -17,14 +16,8 @@ def apply_safety_guards(answer: str, confidence: float, sources: str) -> str:
         return (
             f"{answer}\n\n"
             "⚠️ Note: The answer is based on limited information "
-            "from the available documents.\n\n"
-            f"{sources}\n"
-            f"Confidence: {round(confidence, 2)}"
+            "from the available documents."
         )
 
     # High confidence → normal output
-    return (
-        f"{answer}\n\n"
-        f"{sources}\n"
-        f"Confidence: {round(confidence, 2)}"
-    )
+    return answer

@@ -32,8 +32,6 @@ const LetaResponse = ({ data, isDark = false }) => {
              <ShieldCheck size={16} />
              <span className="font-mono text-xs font-bold tracking-widest uppercase">LETA_OUTPUT_V1.0</span>
           </div>
-          <div className={`h-4 w-[1px] ${isDark ? 'bg-white/10' : 'bg-gray-300'}`} />
-          <ConfidenceBadge score={data.confidence} />
         </div>
         
         <div className="flex gap-2">
@@ -65,9 +63,11 @@ const LetaResponse = ({ data, isDark = false }) => {
               </ReactMarkdown>
             </div>
             
+            {/* 
             <div className="mt-8 pt-8 border-t border-white/5">
                 <LetaExplainability reasoning={data.reasoning} isDark={isDark} />
             </div>
+            */}
             {/* 
             <div className="mt-8">
                 <CitationList citations={data.citations} isDark={isDark} />

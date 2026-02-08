@@ -1,75 +1,81 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileText, Bell, Layers, BookOpen, Download, ChevronRight } from 'lucide-react';
-
-// Mock Data for each domain
-const documentsData = {
-  gst: {
-    circulars: [
-      { id: 'c1', title: 'Circular No. 199/11/2023-GST', desc: 'Clarification regarding taxability of services provided by an office of an organisation in one State to the office of that organisation in another State.', date: 'Dec 15, 2023', size: '1.2 MB' },
-      { id: 'c2', title: 'Circular No. 198/10/2023-GST', desc: 'Clarification on availability of ITC in respect of warranty replacement of parts and repair services during warranty period.', date: 'Oct 04, 2023', size: '850 KB' },
-    ],
-    notifications: [
-      { id: 'n1', title: 'Notification No. 05/2024 - Central Tax', desc: 'Extension of due date for filing FORM GSTR-3B.', date: 'Jan 05, 2024', size: '420 KB' },
-    ],
-    forms: [
-      { id: 'f1', title: 'FORM GSTR-1', desc: 'Details of outward supplies of goods or services.', size: '2.5 MB' },
-      { id: 'f2', title: 'FORM GST REG-01', desc: 'Application for Registration under Section 19(1).', size: '1.8 MB' },
-    ],
-    flyers: [
-      { id: 'fly1', title: 'GST Flyer: Basics of GST', desc: 'An introductory guide for new taxpayers.', size: '5.0 MB' },
-    ],
-  },
-  'income-tax': {
-    circulars: [
-       { id: 'itc1', title: 'Circular No. 15 of 2023', desc: 'Condonation of delay under section 119(2)(b) of the Income-tax Act, 1961.', date: 'Nov 20, 2023', size: '900 KB' }
-    ],
-    notifications: [
-       { id: 'itn1', title: 'Notification No. 90/2023', desc: 'Income-tax (Twenty-fifth Amendment) Rules, 2023.', date: 'Oct 15, 2023', size: '550 KB' }
-    ],
-    forms: [
-       { id: 'itf1', title: 'ITR-1 SAHAJ', desc: 'For individuals being a resident (other than not ordinarily resident) having total income upto Rs.50 lakh.', size: '3.0 MB' }
-    ],
-    flyers: [
-       { id: 'itfly1', title: 'Taxpayer Information Series', desc: 'Understanding your tax brackets for AY 2024-25.', size: '2.1 MB' }
-    ]
-  },
-  fema: {
-     circulars: [
-        { id: 'femac1', title: 'A.P. (DIR Series) Circular No. 10', desc: 'Foreign Exchange Management (Overseas Investment) Regulations, 2022.', date: 'Jan 22, 2024', size: '1.5 MB' }
-     ],
-     notifications: [],
-     forms: [
-        { id: 'femaf1', title: 'Form FC-GPR', desc: 'Reporting of foreign investment in India.', size: '1.1 MB' }
-     ],
-     flyers: []
-  },
-  'company-law': {
-      circulars: [
-         { id: 'clc1', title: 'General Circular No. 09/2023', desc: 'Clarification on holding of AGM through Video Conferencing.', date: 'Sep 25, 2023', size: '600 KB' }
-      ],
-      notifications: [],
-      forms: [
-         { id: 'clf1', title: 'Form MGT-7', desc: 'Annual Return.', size: '4.5 MB' }
-      ],
-      flyers: []
-  }
-};
+import { FileText, Bell, Layers, BookOpen, Download, ChevronRight, HelpCircle } from 'lucide-react';
+import DocPreviewSidebar from './DocPreviewSidebar';
 
 const categories = [
   { id: 'circulars', label: 'Circulars', icon: Layers, color: 'text-purple-600', bg: 'bg-purple-50' },
-  { id: 'notifications', label: 'Notifications', icon: Bell, color: 'text-amber-600', bg: 'bg-amber-50' },
   { id: 'forms', label: 'Forms', icon: FileText, color: 'text-blue-600', bg: 'bg-blue-50' },
-  { id: 'flyers', label: 'Flyers & Manuals', icon: BookOpen, color: 'text-emerald-600', bg: 'bg-emerald-50' }
+  { id: 'faqs', label: 'FAQs', icon: HelpCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
+  { id: 'flyers', label: 'Flyers', icon: BookOpen, color: 'text-emerald-600', bg: 'bg-emerald-50' }
 ];
+
+const API_BASE = 'http://127.0.0.1:8000/api/documents';
+
+const FAQSection = () => {
+    // Hardcoded FAQs for now as requested
+    const faqs = [
+        { q: "What is the time limit for claiming ITC?", a: "As per Section 16(4) of the CGST Act, ITC can be claimed up to the 30th of November following the end of the financial year or the date of filing the relevant annual return, whichever is earlier." },
+        { q: "Is GST registration mandatory for inter-state supply?", a: "Yes, under Section 24 of the CGST Act, persons making any inter-state taxable supply are required to be compulsorily registered regardless of turnover threshold." },
+        { q: "Can I revise my GST Return?", a: "There is no provision for revising a filed GST return. However, any errors or omissions can be rectified in the subsequent month's return, subject to the time limit specified in the Act." }
+    ];
+
+    return (
+        <div className="mt-8 border-t border-white/10 pt-6 px-4 pb-4">
+             <h3 className="text-white font-mono text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
+                <HelpCircle size={14} className="text-sentinel-blue" />
+                Frequently Asked Questions
+             </h3>
+             <div className="grid gap-4">
+                {faqs.map((item, i) => (
+                    <div key={i} className="bg-[#0A1420] border border-white/5 p-4 rounded-sm hover:border-white/20 transition-colors">
+                        <h4 className="text-sentinel-blue font-mono text-xs font-bold mb-2 uppercase">Q: {item.q}</h4>
+                        <p className="text-gray-400 text-xs leading-relaxed font-mono">{item.a}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 
 const DocumentLibrary = ({ domainId }) => {
   const [activeCategory, setActiveCategory] = useState(null);
-  
-  // Fallback to empty context if domain not found (though routes ensure it exists)
-  const data = documentsData[domainId] || { circulars: [], notifications: [], forms: [], flyers: [] };
+  const [counts, setCounts] = useState({});
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState(null);
+
+  useEffect(() => {
+    // Fetch counts
+    fetch(`${API_BASE}/categories`)
+        .then(res => res.json())
+        .then(data => setCounts(data))
+        .catch(err => console.error("Failed to fetch counts:", err));
+  }, []);
+
+  useEffect(() => {
+    if (activeCategory) {
+        setLoading(true);
+        fetch(`${API_BASE}/list/${activeCategory}`)
+            .then(res => res.json())
+            .then(data => {
+                setFiles(data);
+                setLoading(false);
+            })
+            .catch(err => {
+                console.error("Failed to fetch files:", err);
+                setLoading(false);
+            });
+    }
+  }, [activeCategory]);
+
+  const handleDownload = (doc) => {
+     window.open(`${API_BASE}/view?category=${doc.id.split('_')[0]}&filename=${encodeURIComponent(doc.filename)}`, '_blank');
+  };
 
   return (
+    <>
     <section className="bg-[#050A10] border border-white/10 mt-8 rounded-sm">
       <div className="p-4 border-b border-white/10 bg-[#081018] flex justify-between items-center">
         <div>
@@ -79,7 +85,7 @@ const DocumentLibrary = ({ domainId }) => {
           </h2>
         </div>
         <div className="text-[10px] font-mono text-gray-500">
-           ID: {domainId.toUpperCase()}
+           ID: GST_DATABASE_ACTIVE
         </div>
       </div>
 
@@ -99,7 +105,7 @@ const DocumentLibrary = ({ domainId }) => {
               {cat.label}
             </span>
             <span className="text-[10px] mt-1 text-gray-600 font-mono">
-               [{data[cat.id]?.length || 0}]
+               [{counts[cat.id] || 0}]
             </span>
           </button>
         ))}
@@ -120,31 +126,29 @@ const DocumentLibrary = ({ domainId }) => {
                  // LISTING CONTENTS FOR: {categories.find(c => c.id === activeCategory).label}
                </div>
                
-               {data[activeCategory]?.length > 0 ? (
-                 <div className="divide-y divide-white/5">
-                   {data[activeCategory].map((file) => (
-                     <div key={file.id} className="group flex items-center justify-between p-4 hover:bg-[#081018] transition-colors cursor-pointer">
+               {loading ? (
+                   <div className="p-8 text-center text-xs font-mono text-sentinel-blue animate-pulse">
+                       // LOADING_DATA...
+                   </div>
+               ) : files.length > 0 ? (
+                 <div className="divide-y divide-white/5 max-h-[400px] overflow-y-auto custom-scrollbar">
+                   {files.map((file) => (
+                     <div key={file.id} onClick={() => setSelectedDoc(file)} className="group flex items-center justify-between p-4 hover:bg-[#081018] transition-colors cursor-pointer">
                         <div className="flex items-start gap-4">
                            <div className="mt-1 text-gray-600 group-hover:text-sentinel-blue transition-colors">
                               <FileText size={16} />
                            </div>
                            <div>
-                              <h4 className="text-sm font-semibold text-gray-300 group-hover:text-white transition-colors font-mono">
+                              <h4 className="text-sm font-semibold text-gray-300 group-hover:text-white transition-colors font-mono break-all pr-4">
                                 {file.title}
                               </h4>
-                              <p className="text-xs text-gray-500 mt-1 line-clamp-1 font-mono">{file.desc}</p>
+                              <p className="text-xs text-gray-500 mt-1 font-mono">Size: {file.size}</p>
                            </div>
                         </div>
                         
                         <div className="items-center gap-4 hidden sm:flex">
-                           <span className="text-[10px] font-mono text-gray-600">
-                              {file.date || 'N/A'}
-                           </span>
-                           <span className="text-[10px] font-mono text-sentinel-blue border border-sentinel-blue/30 px-1 py-0.5 rounded-sm">
-                              {file.size}
-                           </span>
                            <button className="text-gray-500 hover:text-sentinel-green transition-colors" title="Download">
-                              <Download size={16} />
+                              <ChevronRight size={16} />
                            </button>
                         </div>
                      </div>
@@ -159,7 +163,19 @@ const DocumentLibrary = ({ domainId }) => {
           </motion.div>
         )}
       </AnimatePresence>
+      
+      {/* FAQ Section */}
+      <FAQSection />
     </section>
+
+    {/* Sidebar Portal */}
+    <DocPreviewSidebar 
+        isOpen={!!selectedDoc} 
+        document={selectedDoc} 
+        onClose={() => setSelectedDoc(null)} 
+        onDownload={handleDownload}
+    />
+    </>
   );
 };
 

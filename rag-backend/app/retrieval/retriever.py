@@ -89,9 +89,16 @@ class Retriever:
                 **meta
             })
 
-        # 🔑 Authority-aware re-ranking (lower = stronger)
-        results.sort(
+        # 🔑 RELEVANCE FIRST, THEN AUTHORITY
+        # 1. We have 'results' which are candidates from the vector search (already roughly sorted by similarity).
+        # 2. We take the top 'top_k' *most similar* chunks first. We do NOT want to discard a high-similarity circular for a low-similarity Act.
+        
+        # Take the top_k most relevant chunks (semantic search order)
+        top_results = results[:top_k]
+
+        # 3. NOW we sort these top_k chunks by authority so the LLM reads the Act first, then Rules, etc.
+        top_results.sort(
             key=lambda x: source_priority(x.get("source", ""))
         )
 
-        return results[:top_k]
+        return top_results
