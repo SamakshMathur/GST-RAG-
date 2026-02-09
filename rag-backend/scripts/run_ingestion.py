@@ -33,26 +33,59 @@ def write_record(record):
     with DOCS_OUTPUT.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+def is_text_meaningful(text):
+    """
+    Heuristic to check if text is valid English/meaningful.
+    Returns True if > 40% of words are alphanumeric and sensible length.
+    """
+    if not text: return False
+    words = text.split()
+    if not words: return False
+    
+    # Check for mojibake or OCR garbage (too many non-ascii or random symbols)
+    valid_words = 0
+    total_words = len(words)
+    
+    for w in words:
+        # Simple heuristic: Alpha-only and length > 2
+        if w.isalpha() and len(w) > 2:
+            valid_words += 1
+            
+    ratio = valid_words / total_words
+    return ratio > 0.4  # At least 40% valid English-looking words
+
 def process_pdf(path):
     print(f"Processing PDF: {path}")
     try:
-        # 1. Try Standard Text Extraction first
+        # 1. Try Standard Text Extraction first (Fastest)
         pages = extract_text_from_pdf(path)
         
-        # 2. Check if valid text was extracted
-        total_text_len = sum(len(p["text"].strip()) for p in pages)
-        avg_text_len = total_text_len / len(pages) if pages else 0
+        # 2. Analyze Text Quality
+        combined_text = " ".join([p["text"] for p in pages]) if pages else ""
+        text_quality_pass = is_text_meaningful(combined_text)
+        total_text_len = len(combined_text)
         
-        # If very little text, assume scanned and try OCR
-        if avg_text_len < 50: 
-            print(f"  -> Low text content ({avg_text_len} chars/page). Attempting OCR...")
+        # 3. Decision Logic: Force OCR if text is missing OR garbage
+        needs_ocr = False
+        if total_text_len < 200: # Too short
+            print(f"  -> Too short ({total_text_len} chars). Needs OCR.")
+            needs_ocr = True
+        elif not text_quality_pass: # Garbage / Mojibake
+            print(f"  -> Low text quality detected (Garbage text). Needs OCR.")
+            needs_ocr = True
+            
+        if needs_ocr:
+            print("  -> Starting OCR (Tesseract High-Res)...")
             try:
                 ocr_pages = extract_text_from_scanned_pdf(path)
-                if sum(len(p["text"].strip()) for p in ocr_pages) > total_text_len:
+                ocr_text = " ".join([p["text"] for p in ocr_pages])
+                
+                # If OCR produced SOMETHING, use it.
+                if len(ocr_text) > total_text_len or (len(ocr_text) > 100 and not text_quality_pass):
                      pages = ocr_pages
-                     print("  -> OCR successful.")
+                     print("  -> OCR successful. Replaced original text.")
                 else:
-                    print("  -> OCR did not yield better results. Keeping original.")
+                    print("  -> OCR result was poorer or empty. Falling back to original.")
             except Exception as e:
                 print(f"  -> OCR failed: {e}")
         

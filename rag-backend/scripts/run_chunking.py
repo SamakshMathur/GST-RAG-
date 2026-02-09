@@ -1,3 +1,8 @@
+import sys
+import os
+# Add parent directory to path to allow imports from app
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import json
 from pathlib import Path
 from app.chunking.chunker import chunk_text
