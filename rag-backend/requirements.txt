@@ -12,3 +12,16 @@ faiss-cpu
 numpy
 python-docx
 sentence-transformers
+huggingface_hub
+sentencepiece
+opencv-python-headless
+torch
+torchvision
+matplotlib
+markdown
+requests
+hf_xet
+spaces
+pillow
+gradio
+av
