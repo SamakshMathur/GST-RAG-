@@ -10,7 +10,7 @@ const categories = [
   { id: 'flyers', label: 'Flyers', icon: BookOpen, color: 'text-emerald-600', bg: 'bg-emerald-50' }
 ];
 
-const API_BASE = 'http://127.0.0.1:8000/api/documents';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://3.109.156.41:8000/api/documents';
 
 const FAQSection = () => {
     // Hardcoded FAQs for now as requested

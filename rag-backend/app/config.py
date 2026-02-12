@@ -14,3 +14,7 @@ CHUNKS_PATH = "data/chunks/chunks.jsonl"
 
 # Ingestion Config
 DATA_DIR = "RAG_INFORMATION_DATABASE"
+
+# S3 Config for AWS Deployment
+S3_BUCKET_NAME = "gst-rag-documents"
+LOCAL_DATA_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

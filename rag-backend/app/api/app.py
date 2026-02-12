@@ -51,11 +51,18 @@ class AnswerResponse(BaseModel):
     sources: List[Source]
 
 
-# ---------- Load Retriever ONCE ----------
-retriever = Retriever(
-    index_path=Path("vectordb/index.faiss"),
-    chunks_path=Path("data/chunks/chunks.jsonl")
-)
+# ---------- Lazy Load Retriever ----------
+_retriever = None
+
+def get_retriever():
+    global _retriever
+    if _retriever is None or _retriever.index is None:
+        print("📥 Initializing Retriever...")
+        _retriever = Retriever(
+            index_path=Path("vectordb/index.faiss"),
+            chunks_path=Path("data/chunks/chunks.jsonl")
+        )
+    return _retriever
 
 
 # ---------- Endpoint ----------
@@ -76,6 +83,7 @@ def ask_question(req: QuestionRequest):
     route = route_query(question)
 
     # Retrieval
+    retriever = get_retriever()
     chunks = retriever.search(
         query=question,
         top_k=3000,

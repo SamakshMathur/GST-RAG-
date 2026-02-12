@@ -1,32 +1,19 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies for OCR and PDF processing
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     tesseract-ocr \
-    libgl1-mesa-glx \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first to leverage Docker cache
-COPY requirements.txt .
+WORKDIR /app
 
-# Install Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
 COPY . .
 
-# Create a non-root user for security (and HF requirement)
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+ENV PYTHONPATH=/app
 
-# Expose port (Hugging Face expects 7860)
-EXPOSE 7860
-
-# Command to run the application
-CMD ["uvicorn", "app.api.app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
