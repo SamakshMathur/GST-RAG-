@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+venv/
+ENV/
+
+# Environment Variables
+.env
+.env.local
+.env.*
