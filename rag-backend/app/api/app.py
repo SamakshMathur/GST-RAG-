@@ -31,6 +31,9 @@ app.add_middleware(
 from app.api import documents
 app.include_router(documents.router, prefix="/api/documents", tags=["Documents"])
 
+from app.api import advisory
+app.include_router(advisory.router, prefix="/api/advisory", tags=["Advisory"])
+
 
 # ---------- Request / Response ----------
 from typing import List, Dict, Any
@@ -53,17 +56,7 @@ class AnswerResponse(BaseModel):
 
 
 # ---------- Lazy Load Retriever ----------
-_retriever = None
-
-def get_retriever():
-    global _retriever
-    if _retriever is None or _retriever.index is None:
-        print("📥 Initializing Retriever...")
-        _retriever = Retriever(
-            index_path=Path("vectordb/index.faiss"),
-            chunks_path=Path("data/chunks/chunks.jsonl")
-        )
-    return _retriever
+from app.dependencies import get_retriever
 
 
 # ---------- Endpoint ----------

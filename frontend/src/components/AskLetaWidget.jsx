@@ -41,6 +41,7 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
       // Let's ensure the mapping is robust.
       
       setResponse({
+        query: query, // Pass the original query for Advisory generation
         confidence: data.confidence || 0.95, // Backend might not send confidence, default high
         answer: data.answer,
         reasoning: data.reasoning || {
