@@ -9,10 +9,15 @@ import Login from './pages/Login';
 import LawDashboard from './components/LawDashboard';
 import ScrollToTop from './components/ScrollToTop'; // We'll create this helper
 
+import FilmGrain from './components/effects/FilmGrain';
+import AmbientBackground from './components/effects/AmbientBackground';
+
 const Layout = ({ children }) => (
-  <div className="min-h-screen flex flex-col bg-[#020202]">
+  <div className="min-h-screen flex flex-col bg-[#020202] text-gray-200 font-sans relative">
+    <FilmGrain />
+    <AmbientBackground />
     <Navbar />
-    <main className="flex-grow pt-16">
+    <main className="flex-grow pt-16 relative z-10">
       {children}
     </main>
     <SystemFooter />

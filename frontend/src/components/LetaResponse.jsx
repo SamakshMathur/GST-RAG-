@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import ConfidenceBadge from './ConfidenceBadge';
 import CitationList from './CitationList';
@@ -13,6 +13,25 @@ import AdvisoryModal from './AdvisoryModal';
 const LetaResponse = ({ data, isDark = false }) => {
   const [citationMode, setCitationMode] = useState(false);
   const [isAdvisoryOpen, setIsAdvisoryOpen] = useState(false);
+  const [displayedText, setDisplayedText] = useState('');
+  
+  useEffect(() => {
+    if (!data?.answer) return;
+    
+    let i = 0;
+    const text = data.answer;
+    setDisplayedText(''); // Reset on new data
+    
+    const interval = setInterval(() => {
+      setDisplayedText((prev) => text.substring(0, i));
+      i++;
+      if (i > text.length) {
+        clearInterval(interval);
+      }
+    }, 10); // Standard "LLM" speed
+    
+    return () => clearInterval(interval);
+  }, [data?.answer]);
 
   if (!data) return null;
 
@@ -59,7 +78,7 @@ const LetaResponse = ({ data, isDark = false }) => {
                     strong: ({node, ...props}) => <strong className="font-bold text-sentinel-blue dark:text-white" {...props} />,
                   }}
                 >
-                  {data.answer}
+                  {displayedText}
                 </ReactMarkdown>
               </div>
               

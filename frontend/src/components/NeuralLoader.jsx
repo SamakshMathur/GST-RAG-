@@ -11,7 +11,7 @@ const NeuralLoader = () => {
     let animationFrameId;
 
     // Configuration
-    const particleCount = 60;
+    const particleCount = 100;
     const connectionDistance = 120;
     const speed = 0.5;
 
@@ -21,9 +21,9 @@ const NeuralLoader = () => {
     };
 
     class Particle {
-      constructor() {
-        this.x = Math.random() * width;
-        this.y = Math.random() * height;
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
         this.vx = (Math.random() - 0.5) * speed;
         this.vy = (Math.random() - 0.5) * speed;
         this.size = Math.random() * 2 + 1;
@@ -48,8 +48,24 @@ const NeuralLoader = () => {
     const init = () => {
       resize();
       particles = [];
-      for (let i = 0; i < particleCount; i++) {
-        particles.push(new Particle());
+      const cx = width / 2;
+      const cy = height / 2;
+      const rx = Math.min(width, height) * 0.35; // Radius X
+      const ry = Math.min(width, height) * 0.3;  // Radius Y (slightly flatter for brain shape)
+
+      let i = 0;
+      while (i < particleCount) {
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        
+        // Ellipse Check
+        const dx = x - cx;
+        const dy = y - cy;
+        
+        if ((dx*dx)/(rx*rx) + (dy*dy)/(ry*ry) <= 1) {
+            particles.push(new Particle(x, y));
+            i++;
+        }
       }
     };
 

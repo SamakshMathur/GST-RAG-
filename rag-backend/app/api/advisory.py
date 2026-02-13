@@ -44,15 +44,17 @@ async def create_advisory(req: AdvisoryRequest):
             subject_line = "Query regarding GST implications on specified transaction"
 
         # Generate!
-        advisory_md = generate_legal_advisory(
+        result = generate_legal_advisory(
             user_input=req.query,
             context=context_to_use,
             subject=subject_line
         )
         
         return {
-            "advisory": advisory_md,
-            "status": "success"
+            "advisory": result["content"],
+            "pdf_url": result["pdf_url"],
+            "status": "success",
+            "cached": result.get("cached", False)
         }
 
     except Exception as e:

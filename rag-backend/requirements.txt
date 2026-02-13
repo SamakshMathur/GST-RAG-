@@ -26,3 +26,7 @@ pdf2image
 pytesseract
 numpy
 spaces
+flashrank
+diskcache
+reportlab
+markdown2

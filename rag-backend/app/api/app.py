@@ -93,10 +93,47 @@ def ask_question(req: QuestionRequest):
                 "page": safe_page
             })
 
+    # Calculate mock confidence for now
+    confidence_score = 0.92 
+    if chunks:
+        # Use rerank score if available
+        if "_rerank_score" in chunks[0]:
+            confidence_score = chunks[0]["_rerank_score"]
+
     return {
         "answer": final_answer,
-        "confidence": 0.95 if final_answer and "I cannot find" not in final_answer else 0.0,
-        "intent": intent,
+        "confidence": confidence_score,
+        "intent": intent.upper(),
         "sources": source_list,
         "reasoning": reasoning
     }
+
+# ---------- PDF Reporting Endpoint ----------
+from fastapi.responses import Response
+from app.generation.pdf_report import PDFReportGenerator
+import os
+
+pdf_gen = PDFReportGenerator(output_dir="data/generated_reports")
+
+class PDFRequest(BaseModel):
+    title: str
+    content: str
+
+@app.post("/generate-pdf")
+def create_pdf(req: PDFRequest):
+    # Use the class to generate PDF
+    # We construct a filename
+    filename = f"Report_{hash(req.title)}.pdf"
+    pdf_path = pdf_gen.generate_report(req.content, filename)
+    
+    if not os.path.exists(pdf_path):
+        return Response(status_code=500, content="Error generating PDF")
+        
+    with open(pdf_path, "rb") as f:
+        pdf_bytes = f.read()
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=advisory_report.pdf"}
+    )

@@ -92,10 +92,10 @@ const StatutoryDomains = () => {
                         key={domain.id}
                         layout
                         onClick={() => setActiveIndex(index)}
-                        className={`relative rounded-sm overflow-hidden cursor-pointer border transition-colors duration-500 ${
+                        className={`relative rounded-sm overflow-hidden cursor-pointer border transition-all duration-700 ease-out ${
                             isActive 
-                                ? 'flex-[4] border-sentinel-green/30 bg-[#050A10]' 
-                                : 'flex-[1] border-white/10 bg-[#030609] hover:border-white/20'
+                                ? 'flex-[4] border-sentinel-green/30 bg-[#050A10]/60 backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.5)]' 
+                                : 'flex-[1] border-white/5 bg-[#030609]/30 backdrop-blur-md hover:border-white/20 hover:bg-[#030609]/50'
                         }`}
                     >
                         {/* Background for Active Card */}
@@ -103,27 +103,29 @@ const StatutoryDomains = () => {
                             <motion.div 
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
-                                className="absolute inset-0 z-0"
+                                transition={{ duration: 1 }}
+                                className="absolute inset-0 z-0 pointer-events-none"
                             >
-                                <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-sentinel-green/5 to-transparent rounded-bl-full" />
-                                <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-sentinel-green/20 to-transparent" />
+                                <div className="absolute top-0 right-0 w-96 h-96 bg-[radial-gradient(circle_at_top_right,rgba(11,115,80,0.15),transparent_70%)]" />
+                                <div className="absolute bottom-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-sentinel-green/40 to-transparent" />
                                 
                                 {/* Decorate with binary data */}
-                                <div className="absolute top-8 right-8 text-[10px] font-mono text-sentinel-green/20 flex flex-col items-end">
+                                <div className="absolute top-8 right-8 text-[10px] font-mono text-sentinel-green/30 flex flex-col items-end gap-1">
                                     <span>01011001</span>
                                     <span>10100110</span>
                                     <span>00111010</span>
+                                    <span>SYSTEM_ACTIVE</span>
                                 </div>
                             </motion.div>
                         )}
 
                         {/* Content Wrapper */}
-                        <div className="relative z-10 h-full p-6 flex flex-col">
+                        <div className="relative z-10 h-full p-8 flex flex-col">
                             
                             {/* Inactive Vertical Title */}
                             {!isActive && (
                                 <div className="absolute inset-0 flex items-center justify-center lg:rotate-[-90deg]">
-                                    <h3 className="text-gray-500 font-bold uppercase tracking-widest text-sm whitespace-nowrap">
+                                    <h3 className="text-gray-500 font-mono font-bold uppercase tracking-[0.2em] text-xs whitespace-nowrap opacity-60">
                                         {domain.title}
                                     </h3>
                                 </div>
@@ -133,36 +135,34 @@ const StatutoryDomains = () => {
                             <AnimatePresence mode="wait">
                                 {isActive && (
                                     <motion.div
-                                        initial={{ opacity: 0, x: -20 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        exit={{ opacity: 0, x: -20 }}
-                                        transition={{ duration: 0.3, delay: 0.1 }}
+                                        initial={{ opacity: 0, x: -20, filter: 'blur(10px)' }}
+                                        animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+                                        exit={{ opacity: 0, x: -10, filter: 'blur(5px)' }}
+                                        transition={{ duration: 0.5, delay: 0.1 }}
                                         className="h-full flex flex-col justify-between"
                                     >
                                         <div>
-                                            <div className="flex items-center justify-between mb-8">
-                                                <div className={`p-3 rounded-full bg-white/5 ${domain.color}`}>
-                                                    <domain.icon size={32} strokeWidth={1.5} />
+                                            <div className="flex items-center justify-between mb-10">
+                                                <div className={`p-4 rounded-full bg-white/5 border border-white/5 shadow-[0_0_20px_rgba(0,0,0,0.3)] ${domain.color}`}>
+                                                    <domain.icon size={32} strokeWidth={1.2} />
                                                 </div>
-                                                <div className={`px-2 py-1 text-[10px] font-bold tracking-widest uppercase font-mono border ${
+                                                <div className={`px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] uppercase font-mono border backdrop-blur-sm ${
                                                     domain.status === 'ACTIVE' 
-                                                        ? 'bg-sentinel-green/10 text-sentinel-green border-sentinel-green/30' 
+                                                        ? 'bg-sentinel-green/10 text-sentinel-green border-sentinel-green/30 shadow-[0_0_15px_rgba(11,115,80,0.2)]' 
                                                         : 'bg-white/5 text-gray-500 border-white/10'
                                                 }`}>
                                                     [ {domain.status} ]
                                                 </div>
                                             </div>
 
-                                            <h3 className="text-3xl font-bold text-white mb-2 font-sans">
+                                            <h3 className="text-4xl lg:text-5xl font-bold text-white mb-3 font-mono tracking-tighter">
                                                 {domain.title}
                                             </h3>
-                                            <p className="text-gray-500 font-mono text-sm mb-6 uppercase tracking-wider">
+                                            <p className="text-sentinel-green/80 font-mono text-xs mb-8 uppercase tracking-[0.15em] border-l border-sentinel-green/30 pl-3">
                                                 // {domain.subtext}
                                             </p>
                                             
-                                            <div className="w-12 h-0.5 bg-gradient-to-r from-sentinel-green to-transparent mb-6" />
-
-                                            <p className="text-gray-400 text-lg leading-relaxed max-w-xl">
+                                            <p className="text-gray-300 text-lg leading-relaxed max-w-xl font-light font-sans border-t border-white/10 pt-6">
                                                 {domain.desc}
                                             </p>
                                         </div>
@@ -171,13 +171,14 @@ const StatutoryDomains = () => {
                                             {domain.status === 'ACTIVE' ? (
                                                 <Link 
                                                     to={domain.path}
-                                                    className="inline-flex items-center gap-3 px-6 py-3 bg-sentinel-green text-black font-bold uppercase tracking-wider text-sm hover:bg-white transition-colors rounded-sm"
+                                                    className="group inline-flex items-center gap-4 px-8 py-4 bg-sentinel-green text-black font-bold uppercase tracking-widest text-xs hover:bg-white transition-all duration-300 rounded-sm shadow-[0_0_20px_rgba(11,115,80,0.3)] hover:shadow-[0_0_40px_rgba(255,255,255,0.4)]"
                                                 >
-                                                    Initialize Module <ChevronRight size={16} />
+                                                    Initialize Module 
+                                                    <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
                                                 </Link>
                                             ) : (
-                                                <div className="inline-flex items-center gap-2 text-gray-600 font-mono text-xs uppercase tracking-widest">
-                                                    <Lock size={14} /> Access Restricted
+                                                <div className="inline-flex items-center gap-3 text-gray-500 font-mono text-xs uppercase tracking-widest border border-white/5 px-4 py-2 rounded-sm">
+                                                    <Lock size={14} /> Access Restricted // Awaiting Clearance
                                                 </div>
                                             )}
                                         </div>

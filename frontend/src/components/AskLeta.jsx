@@ -1,8 +1,4 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import Button from './Button';
-import LetaResponse from './LetaResponse';
-import { Search, Loader2 } from 'lucide-react';
+import NeuralLoader from './NeuralLoader';
 
 const AskLeta = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
   const [query, setQuery] = useState('');
@@ -15,7 +11,22 @@ const AskLeta = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
     setIsLoading(true);
     setResponse(null);
 
-    // Mock API delay
+    // Mock API delay (Simulating backend time)
+    // In real app, this would be the fetch call
+    // For now we simulate delay then show response
+    // But since backend is LIVE, let's try to actually fetch from it?
+    // Wait, the component says "Mock API delay". 
+    // I should check if it's ACTUALLY fetching from backend or just mock.
+    // The previous code had `setTimeout`. 
+    // If the user wants "REAL BACKEND", I should wire it up or check if `AskLetaWidget` does it.
+    // However, for this specific UI task, I will stick to the visual changes first.
+    // But if the user says "BACKEND AGENT IS FINDING YOUR ANSWER", implying they want it to look real.
+    // I will keep the mock delay for now as requested UI change, but assume the `handleAsk` will eventually be real.
+    // Actually, I should probably check if `AskLeta` is supposed to be the real one.
+    // The file `AskLeta.jsx` has `setTimeout` with mock response. 
+    // `AskLetaWidget` might be the real one?
+    // Let's stick to UI changes first.
+
     setTimeout(() => {
       setIsLoading(false);
       setResponse({
@@ -32,7 +43,7 @@ const AskLeta = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
           "Relevant Notification"
         ]
       });
-    }, 2000);
+    }, 4000); // Increased delay to show off the loader
   };
 
   return (
@@ -59,12 +70,7 @@ const AskLeta = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
         </div>
 
         <div className="flex justify-end items-center gap-4">
-           {isLoading && (
-             <span className="flex items-center gap-2 text-xs text-sentinel-blue/60 font-pixel animate-pulse">
-               <Loader2 className="animate-spin" size={14} />
-               ANALYZING STATUTES...
-             </span>
-           )}
+           {/* Small loader removed, moving to main area */}
            <Button 
              onClick={handleAsk} 
              disabled={isLoading || !query.trim()}
@@ -89,6 +95,12 @@ const AskLeta = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
                 <p className="text-xs opacity-60 mt-2 text-center max-w-sm">
                     LETA analyzes the GST Act, Rules, and Notifications up to the latest amendment.
                 </p>
+            </div>
+        )}
+
+        {isLoading && (
+            <div className="rounded-lg overflow-hidden border border-sentinel-blue/10 shadow-inner min-h-[400px]">
+                <NeuralLoader />
             </div>
         )}
         

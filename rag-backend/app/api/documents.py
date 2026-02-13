@@ -13,10 +13,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent / "RAG_INFORMATION_DATA
 # Category Mapping
 CATEGORY_MAP = {
     "circulars": "Circulars",
-    "notifications": "Circulars", # Fallback since no Notifications folder found
+    "notifications": "Circulars", 
     "forms": "Forms",
-    "flyers": "Other APP Result", # Fallback
-    "faqs": "FAQs"
+    "flyers": "Other APP Result",
+    "faqs": "FAQs",
+    "reports": "generated_reports" # New category for AI reports
 }
 
 @router.get("/categories")
@@ -106,5 +107,6 @@ def view_document(category: str, filename: str):
     return FileResponse(
         path=target_path,
         filename=safe_filename,
-        media_type='application/pdf'
+        media_type='application/pdf',
+        content_disposition_type='inline' 
     )

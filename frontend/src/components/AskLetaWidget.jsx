@@ -70,22 +70,22 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
     <>
       {/* Sidebar Trigger Card - Console Module */}
       <div 
-        className="group relative bg-[#050A10] rounded-sm border border-sentinel-blue/30 overflow-hidden cursor-pointer hover:border-sentinel-green/80 transition-all duration-300"
+        className="group relative bg-[#050A10]/60 backdrop-blur-md rounded-sm border border-sentinel-blue/30 overflow-hidden cursor-pointer hover:border-sentinel-green/80 transition-all duration-500 hover:shadow-[0_0_30px_rgba(11,115,80,0.3)]"
         onMouseEnter={() => setIsOpen(true)}
       >
-        <div className="absolute top-0 left-0 w-1 h-full bg-sentinel-blue group-hover:bg-sentinel-green transition-colors duration-300" />
+        <div className="absolute top-0 left-0 w-1 h-full bg-sentinel-blue group-hover:bg-sentinel-green transition-colors duration-300 shadow-[0_0_10px_#003B59]" />
         <div className="p-6 relative z-10">
            <div className="flex items-center justify-between mb-4">
-              <div className="p-0 text-sentinel-blue group-hover:text-sentinel-green transition-colors duration-300">
+              <div className="p-0 text-sentinel-blue group-hover:text-sentinel-green transition-colors duration-300 drop-shadow-[0_0_5px_rgba(0,0,0,0.5)]">
                 <Terminal size={24} />
               </div>
               <ChevronRight className="text-gray-600 group-hover:text-sentinel-green group-hover:translate-x-1 transition-all" />
            </div>
-           <h3 className="text-lg font-bold text-white mb-2 font-mono uppercase tracking-tight">Access LETA Console</h3>
-           <p className="text-xs text-gray-500 mb-0 font-mono">
+           <h3 className="text-xl font-bold text-white mb-2 font-mono uppercase tracking-tight group-hover:text-shadow-[0_0_10px_rgba(255,255,255,0.3)]">Access LETA Console</h3>
+           <p className="text-xs text-gray-500 mb-0 font-mono tracking-wide">
              // INITIALIZE ADVISORY PROTOCOL FOR {domain.toUpperCase()}
            </p>
-           <button className="mt-4 w-full py-2 bg-[#081018] border border-white/10 text-gray-400 text-xs font-mono font-bold uppercase tracking-widest hover:text-white hover:border-sentinel-green hover:bg-sentinel-green/10 transition-colors">
+           <button className="mt-6 w-full py-3 bg-[#081018]/50 border border-white/10 text-gray-400 text-xs font-mono font-bold uppercase tracking-[0.2em] hover:text-white hover:border-sentinel-green hover:bg-sentinel-green/10 transition-colors backdrop-blur-sm">
              [ LAUNCH_TERMINAL ]
            </button>
         </div>

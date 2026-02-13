@@ -1,23 +1,27 @@
 import openai
-import os
-from app.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENAI_MODEL, OPENAI_API_KEY
+from app.config import OPENAI_API_KEY, LLM_MODEL
 from app.generation.prompt import SYSTEM_PROMPT
 
-# Use Direct OpenAI if key is present, else fallback to OpenRouter
-if OPENAI_API_KEY:
-    print(f"Initializing Direct OpenAI Client with model: {OPENAI_MODEL}")
-    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-else:
-    print(f"Initializing OpenRouter Client with model: {OPENAI_MODEL}")
-    client = openai.OpenAI(
-        base_url=OPENROUTER_BASE_URL,
-        api_key=OPENROUTER_API_KEY
-    )
+# Initialize OpenAI Client
+if not OPENAI_API_KEY:
+    print("WARNING: OPENAI_API_KEY not found in environment. Answer generation will fail.")
+
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 def synthesize_answer(question: str, context: str) -> str:
     """
-    Synthesizes an answer using OpenRouter (StepFun model) based on the provided context.
+    Synthesizes an answer using the primary LLM (GPT-4o-mini) based on the provided context.
     """
+    if not OPENAI_API_KEY:
+        return (
+            "## ⚠️ **System Notice: OpenAI API Key Missing**\n\n"
+            "The LETA Legal AI system is operational, but **Answer Generation** is currently disabled.\n\n"
+            "**To enable AI capabilities:**\n"
+            "1.  Open your `.env` file.\n"
+            "2.  Add: `OPENAI_API_KEY=sk-...`\n"
+            "3.  Restart the backend.\n\n"
+            "*The Document Retrieval System remains active.*"
+        )
     
     formatted_system_prompt = SYSTEM_PROMPT.format(context=context)
     
@@ -29,7 +33,7 @@ def synthesize_answer(question: str, context: str) -> str:
 
     try:
         response_1 = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=LLM_MODEL,
             messages=messages
             # temperature=0.0
         )
@@ -53,7 +57,7 @@ def synthesize_answer(question: str, context: str) -> str:
         ]
         
         response_2 = client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=LLM_MODEL,
             messages=verification_messages
         )
         

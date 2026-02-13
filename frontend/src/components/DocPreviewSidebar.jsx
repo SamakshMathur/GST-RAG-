@@ -57,10 +57,9 @@ const DocPreviewSidebar = ({ isOpen, document, onClose, onDownload }) => {
               </div>
             </div>
 
-            {/* Content Preview (PDF Viewer Placeholder) */}
-            <div className="flex-1 overflow-hidden bg-[#0A1420] p-0 relative">
+             <div className="flex-1 overflow-hidden bg-[#0A1420] p-0 relative">
                <iframe 
-                 src={`${import.meta.env.VITE_API_BASE || 'http://3.109.156.41:8000'}/api/documents/view?category=${document.id.split('_')[0]}&filename=${encodeURIComponent(document.filename)}`}
+                 src={`${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/api/documents/view?category=${document.id.split('_')[0]}&filename=${encodeURIComponent(document.filename)}`}
                  className="w-full h-full border-none"
                  title="PDF Preview"
                />

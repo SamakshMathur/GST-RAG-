@@ -77,8 +77,11 @@ const DocumentLibrary = ({ domainId }) => {
 
   return (
     <>
-    <section className="bg-[#050A10] border border-white/10 mt-8 rounded-sm">
-      <div className="p-4 border-b border-white/10 bg-[#081018] flex justify-between items-center">
+    <section className="bg-[#050A10]/60 backdrop-blur-xl border border-white/5 mt-8 rounded-sm shadow-[0_0_30px_rgba(0,0,0,0.3)] relative overflow-hidden">
+        {/* Cinematic Sheen */}
+        <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent z-10" />
+
+      <div className="p-4 border-b border-white/5 bg-[#081018]/50 flex justify-between items-center backdrop-blur-sm relative z-20">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2 font-mono uppercase tracking-tight">
             <BookOpen className="text-sentinel-blue" size={18} />
@@ -90,18 +93,18 @@ const DocumentLibrary = ({ domainId }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-0 border-b border-white/10">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-0 border-b border-white/5 relative z-20">
         {categories.map((cat) => (
           <button
             key={cat.id}
             onClick={() => setActiveCategory(activeCategory === cat.id ? null : cat.id)}
-            className={`flex flex-col items-center justify-center p-6 border-r border-white/10 last:border-r-0 transition-all duration-200 ${
+            className={`flex flex-col items-center justify-center p-6 border-r border-white/5 last:border-r-0 transition-all duration-300 ${
               activeCategory === cat.id 
-                ? 'bg-sentinel-blue/10 text-white shadow-[inset_0_0_10px_rgba(0,59,89,0.3)]' 
-                : 'bg-transparent text-gray-500 hover:bg-[#0A1420] hover:text-gray-300'
+                ? 'bg-sentinel-blue/10 text-white shadow-[inset_0_0_20px_rgba(0,59,89,0.2)]' 
+                : 'bg-transparent text-gray-500 hover:bg-white/5 hover:text-gray-300'
             }`}
           >
-            <cat.icon size={20} className={`mb-3 ${activeCategory === cat.id ? 'text-sentinel-blue' : 'text-gray-600'}`} />
+            <cat.icon size={20} className={`mb-3 transition-colors duration-300 ${activeCategory === cat.id ? 'text-sentinel-blue drop-shadow-[0_0_8px_rgba(0,59,89,0.8)]' : 'text-gray-600'}`} />
             <span className={`font-mono text-xs uppercase tracking-wider`}>
               {cat.label}
             </span>
@@ -119,36 +122,37 @@ const DocumentLibrary = ({ domainId }) => {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="border-t border-white/10 bg-[#020202]"
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="border-t border-white/5 bg-[#020202]/40 backdrop-blur-md relative z-20"
           >
             <div className="p-0">
-               <div className="px-4 py-2 bg-sentinel-blue/5 border-b border-white/10 text-[10px] font-mono text-sentinel-blue uppercase tracking-widest">
+               <div className="px-4 py-2 bg-sentinel-blue/5 border-b border-white/5 text-[10px] font-mono text-sentinel-blue uppercase tracking-widest flex items-center gap-2">
+                 <span className="w-1.5 h-1.5 bg-sentinel-blue rounded-full animate-pulse"></span>
                  // LISTING CONTENTS FOR: {categories.find(c => c.id === activeCategory).label}
                </div>
                
                {loading ? (
-                   <div className="p-8 text-center text-xs font-mono text-sentinel-blue animate-pulse">
-                       // LOADING_DATA...
+                   <div className="p-12 text-center text-xs font-mono text-sentinel-blue animate-pulse">
+                       // ACCESSING_SECURE_ARCHIVES...
                    </div>
                ) : files.length > 0 ? (
                  <div className="divide-y divide-white/5 max-h-[400px] overflow-y-auto custom-scrollbar">
                    {files.map((file) => (
-                     <div key={file.id} onClick={() => setSelectedDoc(file)} className="group flex items-center justify-between p-4 hover:bg-[#081018] transition-colors cursor-pointer">
+                     <div key={file.id} onClick={() => setSelectedDoc(file)} className="group flex items-center justify-between p-4 hover:bg-white/5 transition-colors cursor-pointer">
                         <div className="flex items-start gap-4">
-                           <div className="mt-1 text-gray-600 group-hover:text-sentinel-blue transition-colors">
+                           <div className="mt-1 text-gray-600 group-hover:text-sentinel-blue transition-colors duration-300">
                               <FileText size={16} />
                            </div>
                            <div>
                               <h4 className="text-sm font-semibold text-gray-300 group-hover:text-white transition-colors font-mono break-all pr-4">
                                 {file.title}
                               </h4>
-                              <p className="text-xs text-gray-500 mt-1 font-mono">Size: {file.size}</p>
+                              <p className="text-xs text-gray-600 mt-1 font-mono group-hover:text-gray-500">Size: {file.size}</p>
                            </div>
                         </div>
                         
-                        <div className="items-center gap-4 hidden sm:flex">
-                           <button className="text-gray-500 hover:text-sentinel-green transition-colors" title="Download">
+                        <div className="items-center gap-4 hidden sm:flex opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                           <button className="text-gray-400 hover:text-sentinel-green transition-colors" title="Download">
                               <ChevronRight size={16} />
                            </button>
                         </div>
@@ -156,8 +160,8 @@ const DocumentLibrary = ({ domainId }) => {
                    ))}
                  </div>
                ) : (
-                 <div className="text-center py-8 text-gray-600 italic font-mono text-xs">
-                   // NO_DATA_FOUND
+                 <div className="text-center py-12 text-gray-600 italic font-mono text-xs">
+                   // NULL_RESULT_SET
                  </div>
                )}
             </div>

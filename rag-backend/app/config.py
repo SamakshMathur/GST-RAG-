@@ -3,11 +3,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# LLM Config (Direct OpenAI)
+# LLM Config (Smart Budget Enterprise)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = "gpt-4o-mini" # Standard OpenAI model 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+LLM_MODEL = "gpt-4o-mini"  # Primary: High Intelligence, Low Cost
+EMBEDDING_PROVIDER = "openai"  # "openai" or "local"
+EMBEDDING_MODEL = "text-embedding-3-large"  # SOTA Semantics
+VECTOR_DIM = 3072  # For text-embedding-3-large
+
+# Reranking & Optimization
+RERANKING_MODEL = "ms-marco-TinyBERT-L-2-v2"  # Fast FlashRank model
+CACHE_DIR = ".diskcache"  # Persistent cache
 
 # Vector DB Config
 VECTOR_DB_PATH = "vectordb/index.faiss"
