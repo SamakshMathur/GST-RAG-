@@ -4,7 +4,7 @@ import numpy as np
 from pathlib import Path
 import os
 from app.retrieval.source_priority import source_priority
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer  <-- Moved to get_model
 
 # all-MiniLM-L6-v2 dimension
 VECTOR_DIM = 384
@@ -16,6 +16,8 @@ _model = None
 def get_model():
     global _model
     if _model is None:
+        print("Loading Embedding Model (SentenceTransformer)...")
+        from sentence_transformers import SentenceTransformer
         # We assume lightweight model
         _model = SentenceTransformer('all-MiniLM-L6-v2') 
     return _model
@@ -52,7 +54,8 @@ class Retriever:
                 self.chunks.append(json.loads(line))
         
         # Pre-load model to avoid lag on first query
-        get_model()
+        # get_model() # Lazy load on first request instead
+        pass
 
     def search(self, query: str, top_k: int = 5, allowed_sources=None):
         if not self.index:
@@ -89,7 +92,7 @@ class Retriever:
                 **meta
             })
 
-        # 🔑 RELEVANCE FIRST, THEN AUTHORITY
+        # RELEVANCE FIRST, THEN AUTHORITY
         # 1. We have 'results' which are candidates from the vector search (already roughly sorted by similarity).
         # 2. We take the top 'top_k' *most similar* chunks first. We do NOT want to discard a high-similarity circular for a low-similarity Act.
         

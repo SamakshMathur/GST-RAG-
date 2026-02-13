@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_BASE || 'http://3.109.156.41:8000';
+const BASE_URL = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 export const advisoryService = {
   /**

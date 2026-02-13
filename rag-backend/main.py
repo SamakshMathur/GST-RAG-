@@ -20,16 +20,32 @@ except ImportError as e:
     print(f"Ref app import error: {e}")
 
 from app.api.app import app
-from app.utils.s3_sync import sync_from_s3
+print("Ref: Imported app.api.app")
+try:
+    from app.utils.s3_sync import sync_from_s3
+    print("Ref: Imported sync_from_s3")
+except ImportError as e:
+    print(f"Ref: Error importing sync_from_s3: {e}")
+    # Define dummy function if missing
+    def sync_from_s3(): pass
 
 @app.on_event("startup")
 async def startup_event():
-    print("🚀 App starting... Syncing data from S3")
-    sync_from_s3()
+    print("App starting... Syncing data from S3 (Skipping for Local Dev)")
+    # try:
+    #     sync_from_s3()
+    # except Exception as e:
+    #     print(f"S3 Sync Skipped: {e}")
 
 if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000
-    )
+    print("Ref: Starting uvicorn.run...")
+    try:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000
+        )
+    except Exception as e:
+        print(f"Ref: Uvicorn crashed: {e}")
+        import traceback
+        traceback.print_exc()

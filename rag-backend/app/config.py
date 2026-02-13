@@ -3,10 +3,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# LLM Config (OpenRouter)
+# LLM Config (Direct OpenAI)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = "gpt-4o-mini" # Standard OpenAI model 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENAI_MODEL = "google/gemini-2.0-flash-001" # Stable version to fix 404 error
 
 # Vector DB Config
 VECTOR_DB_PATH = "vectordb/index.faiss"

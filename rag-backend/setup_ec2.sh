@@ -20,24 +20,28 @@ git reset --hard
 git pull origin main
 
 # 3. Docker Maintenance
-echo "🐳 Pruning old Docker images..."
-docker system prune -f
+echo "🐳 Pruning old Docker images & volumes (Aggressive Cleanup)..."
+sudo docker system prune -a -f --volumes
 
 # 4. Build & Run
-echo "🚀 Building Backend..."
-docker build -t rag-backend .
+echo "🚀 Building Backend (Lightweight)..."
+sudo docker build -t rag-backend .
 
 echo "🔥 Starting Container..."
 # Stop old container if running
-docker stop rag-backend || true
-docker rm rag-backend || true
+sudo docker stop rag-backend || true
+sudo docker rm rag-backend || true
 
-# Run new container with restart policy
-docker run -d \
+# Run new container with restart policy AND MOUNTED VOLUMES
+# We mount the local data folders into the container so they are accessible
+# without being built INTO the image.
+sudo docker run -d \
   --name rag-backend \
   -p 8000:8000 \
   --restart always \
   --env-file .env \
+  -v "$(pwd)/RAG_INFORMATION_DATABASE:/app/RAG_INFORMATION_DATABASE" \
+  -v "$(pwd)/vectordb:/app/vectordb" \
   rag-backend
 
 echo "✅ Deployment Complete! Backend is running on port 8000."

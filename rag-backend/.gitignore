@@ -15,3 +15,16 @@ ENV/
 .env
 .env.local
 .env.*
+
+# Local Debug Artifacts
+*.log
+test_*.py
+debug_*.py
+trace_*.py
+final_test.py
+verify_api.py
+check_env.py
+backend_debug.log
+.win_venv/
+.win_venv*
+.win_venv/

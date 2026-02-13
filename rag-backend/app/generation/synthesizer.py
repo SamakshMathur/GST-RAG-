@@ -1,18 +1,18 @@
 import openai
 import os
-from app.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENAI_MODEL
+from app.config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL, OPENAI_MODEL, OPENAI_API_KEY
 from app.generation.prompt import SYSTEM_PROMPT
 
-# Use OpenRouter for the LLM (Chat)
-if not OPENROUTER_API_KEY:
-    # If key is missing, we might warn or fail. 
-    # For now, let's print a warning but allow init (it will fail at runtime if not set)
-    print("WARNING: OPENROUTER_API_KEY is not set. Chat generation will fail.")
-
-client = openai.OpenAI(
-    base_url=OPENROUTER_BASE_URL,
-    api_key=OPENROUTER_API_KEY
-)
+# Use Direct OpenAI if key is present, else fallback to OpenRouter
+if OPENAI_API_KEY:
+    print(f"Initializing Direct OpenAI Client with model: {OPENAI_MODEL}")
+    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+else:
+    print(f"Initializing OpenRouter Client with model: {OPENAI_MODEL}")
+    client = openai.OpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        api_key=OPENROUTER_API_KEY
+    )
 
 def synthesize_answer(question: str, context: str) -> str:
     """

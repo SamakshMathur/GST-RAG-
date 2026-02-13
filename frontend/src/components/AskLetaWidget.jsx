@@ -18,7 +18,7 @@ const AskLetaWidget = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
     setResponse(null);
 
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE || 'http://3.109.156.41:8000';
+      const baseUrl = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
       const res = await fetch(`${baseUrl}/ask`, {
         method: 'POST',
         headers: {

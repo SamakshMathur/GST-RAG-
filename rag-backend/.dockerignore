@@ -1,0 +1,16 @@
+# Avoid copying large data sets into the image
+RAG_INFORMATION_DATABASE/
+vectordb/
+data/
+
+# Avoid copying virtual environments
+.venv
+venv/
+ENV/
+__pycache__/
+.git/
+.gitignore
+.dockerignore
+
+# Avoid copying potentially sensitive files (though we handle .env separately now)
+.env
