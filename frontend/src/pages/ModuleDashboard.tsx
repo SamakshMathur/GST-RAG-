@@ -60,6 +60,11 @@ const MODULES = [
     features: ['ITR analysis', 'TDS/TCS compliance', 'Capital gains', 'Assessment orders'],
   },
 ];
+// NOTE: each module's `status` here must stay in sync with LIVE_MODULE_IDS in
+// constants/routes.ts, which LiveDomainGuard (routes/index.tsx) uses to gate
+// the underlying routes. Kept as a plain constant there rather than imported
+// from here, so routing doesn't eagerly pull this lazy-loaded page's full
+// component code into the router's main chunk.
 
 // ── Plans ─────────────────────────────────────────────────────────────────────
 type Feature = string | { label: string; items: string[] };
