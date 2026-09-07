@@ -558,6 +558,8 @@ def classify_query_authority(query: str) -> dict:
     exp_cats:  set[str]  = {"statute"}
     adj_map:   dict[str, float] = {}
 
+    _has_explicit_cir = bool(re.search(r'\b(?:circular\s*(?:no\.?|number)?\s*\d+|cir\s*[-/]?\s*\d+)', q))
+
     for _, _, cfg in top_matches:
         for s in cfg.get("sections", []):
             if s not in sections:
@@ -565,9 +567,10 @@ def classify_query_authority(query: str) -> dict:
         for r in cfg.get("rules", []):
             if r not in rules:
                 rules.append(r)
-        for c in cfg.get("circulars", []):
-            if c not in circulars:
-                circulars.append(c)
+        if not _has_explicit_cir:
+            for c in cfg.get("circulars", []):
+                if c not in circulars:
+                    circulars.append(c)
         exp_cats.update(cfg.get("expected_cats", set()))
         for cat, mult in cfg.get("authority_adj", {}).items():
             # Merge: take the max multiplier when two topics disagree

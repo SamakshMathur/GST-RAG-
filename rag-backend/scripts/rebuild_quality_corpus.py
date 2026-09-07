@@ -72,6 +72,22 @@ _BOUNDARY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Canonical document-level circular and notification regexes (shared with retriever.py)
+_CIR_NUM_RE = re.compile(
+    r'(?:circular[s]?[-_.\s]*(?:[a-z]*[-_.\s]*)?(?:no[-_.\s]*)?'
+    r'|cir[-_.](?:cgst[-_.])?'
+    r'|cir(?=[0-9])'
+    r'|circularno[-_.])'
+    r'(\d{2,3})',
+    re.IGNORECASE,
+)
+_CIR_LEADING_RE = re.compile(r'^(\d{2,3})[-_]\d+[-_]\d{4}', re.IGNORECASE)
+
+_NOTIF_NUM_RE = re.compile(
+    r'(?:notif(?:ication)?[-_.\s]*(?:no[-_.\s]*)?)?(\d+)[-_/](\d{4})',
+    re.IGNORECASE,
+)
+
 
 def _clean_text(text: str) -> str:
     text = unicodedata.normalize("NFKC", text).replace("\u00ad", "")
@@ -146,9 +162,10 @@ def _canonical_key(value: str, category: str) -> str | None:
     match = re.search(r"(?:CIRC(?:ULAR)?)[_ -]?(\d+)", value)
     if match:
         return f"CIRCULAR_{match.group(1)}"
-    match = re.search(r"(?:NOTIF(?:ICATION)?)[_ -]?(\d+)", value)
+    match = re.search(r"(?:NOTIF(?:ICATION)?)[_ -]?(\d+)[-_/]?(\d{4})?", value)
     if match:
-        return f"NOTIFICATION_{match.group(1)}"
+        year = f"_{match.group(2)}" if match.group(2) else ""
+        return f"NOTIF_{match.group(1)}{year}"
     return None
 
 
@@ -166,6 +183,18 @@ def _provision_keys(text: str, existing: list, category: str, rel_path: str) -> 
         keys.add(f"CIRCULAR_{match.group(1)}")
     for match in _NOTIFICATION_RE.finditer(text):
         keys.add(f"NOTIFICATION_{match.group(1)}")
+
+    # Document-level circular/notification identity propagation from filename/rel_path
+    fname = rel_path.replace("\\", "/").split("/")[-1] if rel_path else ""
+    if category == "circulars" or "circular" in rel_path.lower():
+        cm = _CIR_NUM_RE.search(fname) or _CIR_LEADING_RE.match(fname)
+        if cm:
+            keys.add(f"CIRCULAR_{cm.group(1)}")
+    elif category == "notifications" or "notification" in rel_path.lower():
+        nm = _NOTIF_NUM_RE.search(fname)
+        if nm:
+            keys.add(f"NOTIF_{nm.group(1)}_{nm.group(2)}")
+
     return sorted(keys)
 
 

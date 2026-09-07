@@ -19,9 +19,15 @@ _REF_PATTERNS = (
     r"\b(?:section|sec\.)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
     r"\b(?:rule)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
     r"\b(?:article)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
-    r"\b(?:circular|notification)\s+no\.?\s*[\w./-]+",
+    r"\b(?:circular|notification)\s+(?:no\.?\s*)?[\w./-]+",
+    r"\bcir\s*[-/]?\s*\d+",
+    r"\bnotif\s*[-/]?\s*\d+/\d+",
 )
 _REF_RE = re.compile("|".join(_REF_PATTERNS), re.IGNORECASE)
+_CIR_RE = re.compile(r"\b(?:circular\s*(?:no\.?|number)?\s*(\d+)|cir\s*[-/]?\s*(\d+))\b", re.IGNORECASE)
+_NOTIF_RE = re.compile(r"\b(?:notification|notif)\s*(?:no\.?|number)?\s*(\d{1,4})\s*/\s*(\d{2,4})\b", re.IGNORECASE)
+_SEC_RE = re.compile(r"\b(?:section|sec\.)\s*(\d+[a-z]?)\b", re.IGNORECASE)
+_RUL_RE = re.compile(r"\b(?:rule|rul\.)\s*(\d+[a-z]?)\b", re.IGNORECASE)
 _CONFLICT_TERMS = re.compile(
     r"\b(?:overruled|reversed|distinguished|superseded|amended|contrary|"
     r"notwithstanding|however|in contrast|not available|ineligible|eligible|"
@@ -70,7 +76,27 @@ def _normalise_ref(value: str) -> str:
 
 
 def _query_refs(query: str) -> set[str]:
-    return {_normalise_ref(match) for match in _REF_RE.findall(query or "")}
+    q = query or ""
+    refs = {_normalise_ref(match) for match in _REF_RE.findall(q)}
+    for m in _CIR_RE.finditer(q):
+        num = m.group(1) or m.group(2)
+        refs.add(f"circular_{num}")
+    for m in _NOTIF_RE.finditer(q):
+        num, yr = m.group(1), m.group(2)
+        if len(yr) == 2:
+            yr = "20" + yr
+        refs.add(f"notif_{num}_{yr}")
+    for m in _SEC_RE.finditer(q):
+        sec = m.group(1).lower()
+        refs.add(f"section_{sec}")
+        refs.add(f"sec_{sec}")
+        refs.add(f"cgst_sec_{sec}")
+    for m in _RUL_RE.finditer(q):
+        rul = m.group(1).lower()
+        refs.add(f"rule_{rul}")
+        refs.add(f"rul_{rul}")
+        refs.add(f"cgst_rul_{rul}")
+    return refs
 
 
 def _chunk_refs(chunk: Dict[str, Any]) -> set[str]:
@@ -81,7 +107,48 @@ def _chunk_refs(chunk: Dict[str, Any]) -> set[str]:
         + list(metadata.get("provision_keys") or [])
     )
     refs = {_normalise_ref(str(value)) for value in values if value}
-    refs.update(_normalise_ref(match) for match in _REF_RE.findall(_text(chunk)))
+    for pk in metadata.get("provision_keys") or []:
+        pk_str = str(pk).strip()
+        pk_lower = pk_str.lower()
+        refs.add(pk_lower)
+        if pk_lower.startswith("circular_"):
+            refs.add(pk_lower)
+        elif pk_lower.startswith("notif_"):
+            refs.add(pk_lower)
+        elif pk_lower.startswith("cgst_sec_"):
+            sec = pk_lower.replace("cgst_sec_", "")
+            refs.add(f"section_{sec}")
+            refs.add(f"sec_{sec}")
+        elif pk_lower.startswith("cgst_rul_"):
+            rul = pk_lower.replace("cgst_rul_", "")
+            refs.add(f"rule_{rul}")
+            refs.add(f"rul_{rul}")
+
+    text_content = _text(chunk)
+    path_content = _path(chunk)
+    combined_text = f"{text_content} {path_content}"
+
+    refs.update(_normalise_ref(match) for match in _REF_RE.findall(text_content))
+
+    for m in _CIR_RE.finditer(combined_text):
+        num = m.group(1) or m.group(2)
+        refs.add(f"circular_{num}")
+    for m in _NOTIF_RE.finditer(combined_text):
+        num, yr = m.group(1), m.group(2)
+        if len(yr) == 2:
+            yr = "20" + yr
+        refs.add(f"notif_{num}_{yr}")
+    for m in _SEC_RE.finditer(text_content):
+        sec = m.group(1).lower()
+        refs.add(f"section_{sec}")
+        refs.add(f"sec_{sec}")
+        refs.add(f"cgst_sec_{sec}")
+    for m in _RUL_RE.finditer(text_content):
+        rul = m.group(1).lower()
+        refs.add(f"rule_{rul}")
+        refs.add(f"rul_{rul}")
+        refs.add(f"cgst_rul_{rul}")
+
     return refs
 
 
@@ -98,6 +165,9 @@ def resolve_evidence(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str,
         return []
 
     requested_refs = _query_refs(query)
+    is_explicit_circular_query = any(r.startswith("circular_") for r in requested_refs)
+    is_explicit_notif_query = any(r.startswith("notif_") for r in requested_refs)
+
     prepared: List[Dict[str, Any]] = []
     by_ref: dict[str, list[Dict[str, Any]]] = defaultdict(list)
 
@@ -113,7 +183,21 @@ def resolve_evidence(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str,
         # Keep the authority influence bounded so a highly relevant lower-tier
         # source is not blindly displaced by a vaguely related primary source.
         authority_bonus = max(0.0, (8 - authority_rank) * 0.025)
-        exact_bonus = min(0.20, len(exact_refs) * 0.10)
+
+        # Check if this chunk matches the explicitly requested circular or notification
+        matches_requested_guidance = bool(exact_refs and (
+            (is_explicit_circular_query and any(r.startswith("circular_") for r in exact_refs)) or
+            (is_explicit_notif_query and any(r.startswith("notif_") for r in exact_refs))
+        ))
+
+        if matches_requested_guidance:
+            # Query-intent boost: when the user explicitly queries a specific circular or notification,
+            # that exact candidate is elevated to primary evidence for this query intent without
+            # altering the universal statutory/case-law authority hierarchy for general queries.
+            exact_bonus = 0.50 + min(0.20, len(exact_refs) * 0.10)
+        else:
+            exact_bonus = min(0.20, len(exact_refs) * 0.10)
+
         base_score = float(
             chunk.get("_final_legal_score", chunk.get("_rerank_score", chunk.get("_debug_score", 0.0)))
         )
