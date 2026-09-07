@@ -26,3 +26,12 @@ export const ROUTES = {
   MY_DOCS: '/my-docs',
   PAYMENT: '/payment',
 };
+
+// Which domainIds are actually reachable right now. The dashboard's module
+// cards (ModuleDashboard.tsx) already disable their own click for anything
+// not in here — this is the routing-level counterpart: LiveDomainGuard
+// (routes/index.tsx) redirects a direct URL visit to a non-live module's
+// pages back to /dashboard instead of rendering them. Add a domainId here
+// (and flip its `status` to 'LIVE' in ModuleDashboard.tsx's MODULES array)
+// when that module actually launches.
+export const LIVE_MODULE_IDS = ['gst'];

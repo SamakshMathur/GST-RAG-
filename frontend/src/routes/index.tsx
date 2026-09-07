@@ -1,5 +1,6 @@
 import React, { lazy } from 'react';
-import { ROUTES } from '../constants/routes';
+import { Navigate, useParams } from 'react-router-dom';
+import { ROUTES, LIVE_MODULE_IDS } from '../constants/routes';
 
 // Every page is lazy-loaded — its JS chunk downloads only when the route is
 // first visited, not on initial app load. Combined with manualChunks in
@@ -25,6 +26,27 @@ const LawDashboard = lazy(() =>
   import('../components/dashboard').then(m => ({ default: m.LawDashboard }))
 );
 
+// Gates a module's pages behind LIVE_MODULE_IDS. The dashboard cards already
+// disable their own onClick for non-live modules, but that only blocks the
+// card — the routes themselves (the shared /:domainId/leta chat workspace,
+// and each module's own dedicated info-page route below) are otherwise
+// reachable by anyone who types or links the URL directly. This is the
+// route-level counterpart to that: redirects straight back to /dashboard
+// instead of ever mounting the page for a module that isn't live yet.
+//
+// `domainId` is optional: the shared /:domainId/leta route omits it (reads
+// the real value from the URL param instead); the fixed per-module info-page
+// routes below pass their own domainId explicitly since it isn't a URL param
+// there.
+const LiveDomainGuard: React.FC<{ domainId?: string; children: React.ReactNode }> = ({ domainId: fixedDomainId, children }) => {
+  const params = useParams<{ domainId: string }>();
+  const domainId = fixedDomainId ?? params.domainId ?? 'gst';
+  if (!LIVE_MODULE_IDS.includes(domainId)) {
+    return <Navigate to={ROUTES.DASHBOARD} replace />;
+  }
+  return <>{children}</>;
+};
+
 export interface RouteConfig {
   path: string;
   element: React.ReactNode;
@@ -46,7 +68,7 @@ export const authRoutes: RouteConfig[] = [
 /** Require login — redirect to /login if not authenticated */
 export const protectedRoutes: RouteConfig[] = [
   { path: ROUTES.DASHBOARD,   element: <ModuleDashboard /> },
-  { path: '/:domainId/leta',  element: <LetaWorkspace /> },
+  { path: '/:domainId/leta',  element: <LiveDomainGuard><LetaWorkspace /></LiveDomainGuard> },
 
   {
     path: ROUTES.GST.ROOT,
@@ -65,37 +87,43 @@ export const protectedRoutes: RouteConfig[] = [
   {
     path: ROUTES.INCOME_TAX,
     element: (
-      <LawDashboard
-        title="Income Tax Advisory"
-        domainId="income-tax"
-        contextDesc="income tax query"
-        definition="A direct tax levied on the income or profits of individuals and entities. Governed by the Income Tax Act, 1961."
-        implDate="April 1, 1962"
-      />
+      <LiveDomainGuard domainId="income-tax">
+        <LawDashboard
+          title="Income Tax Advisory"
+          domainId="income-tax"
+          contextDesc="income tax query"
+          definition="A direct tax levied on the income or profits of individuals and entities. Governed by the Income Tax Act, 1961."
+          implDate="April 1, 1962"
+        />
+      </LiveDomainGuard>
     ),
   },
   {
     path: ROUTES.FEMA,
     element: (
-      <LawDashboard
-        title="FEMA Expert System"
-        domainId="fema"
-        contextDesc="foreign exchange scenario"
-        definition="The Foreign Exchange Management Act (FEMA) is an Act of the Parliament of India to consolidate and amend the law relating to foreign exchange."
-        implDate="June 1, 2000"
-      />
+      <LiveDomainGuard domainId="fema">
+        <LawDashboard
+          title="FEMA Expert System"
+          domainId="fema"
+          contextDesc="foreign exchange scenario"
+          definition="The Foreign Exchange Management Act (FEMA) is an Act of the Parliament of India to consolidate and amend the law relating to foreign exchange."
+          implDate="June 1, 2000"
+        />
+      </LiveDomainGuard>
     ),
   },
   {
     path: ROUTES.COMPANY_LAW,
     element: (
-      <LawDashboard
-        title="Company Law Compliance"
-        domainId="company-law"
-        contextDesc="regulatory query"
-        definition="The legislation that governs the incorporation, responsibilities, and dissolution of companies in India."
-        implDate="April 1, 2014"
-      />
+      <LiveDomainGuard domainId="company-law">
+        <LawDashboard
+          title="Company Law Compliance"
+          domainId="company-law"
+          contextDesc="regulatory query"
+          definition="The legislation that governs the incorporation, responsibilities, and dissolution of companies in India."
+          implDate="April 1, 2014"
+        />
+      </LiveDomainGuard>
     ),
   },
 
