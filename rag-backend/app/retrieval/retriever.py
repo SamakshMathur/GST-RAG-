@@ -839,34 +839,10 @@ class Retriever:
                         _year_patched += 1
         logger.info(f"Year backfill: patched {_year_patched} chunks from path/filename")
 
-        # Build provision index for O(1) direct section/rule lookup.
-        # Maps citation key (e.g. "CGST_SEC_16") → list of chunk indices.
-        # Built once at startup; each query with explicit citations does a
-        # dict lookup instead of a linear scan over all chunks.
-        self._provision_index: dict = {}
-        for _ci, _chunk in enumerate(self.chunks):
-            _meta = _chunk.get("metadata", {})
-            # Accept both old "provisions"/"citations" schema and new "provision_keys"
-            # schema used by the Database_V2.0 corpus (ingested 2026-08-19+).
-            _refs = set(
-                (_meta.get("provisions") or [])
-                + (_meta.get("citations") or [])
-                + (_meta.get("provision_keys") or [])
-            )
-            for _ref in _refs:
-                # Skip generic sentinel keys — they match everything, not useful
-                if _ref and _ref not in ("ACT", "RULES", "NOTIFICATION"):
-                    if _ref not in self._provision_index:
-                        self._provision_index[_ref] = []
-                    self._provision_index[_ref].append(_ci)
-        logger.info(f"Provision index built: {len(self._provision_index)} citation keys")
-
-        # Build circular number index for O(1) direct circular lookup.
-        # Maps "CIRCULAR_183" → list of chunk indices from circular filenames.
-        # Covers patterns: Circular-No-183, cir-183, circular-cgst-183, circularno-183.
+        # Build circular number index for O(1) direct circular lookup and propagate
+        # document-level circular identity to all sibling chunks in memory.
         self._circular_index: dict = {}
         _cir_num_re = re.compile(
-            # Handles: "Circular No. 183", "cir-252", "Cir251" (no sep), "circularno-183"
             r'(?:circular[s]?[-_.\s]*(?:[a-z]*[-_.\s]*)?(?:no[-_.\s]*)?'
             r'|cir[-_.](?:cgst[-_.])?'   # cir-252, cir_cgst_183
             r'|cir(?=[0-9])'              # Cir251 — no separator before digits
@@ -880,8 +856,6 @@ class Retriever:
             _cat = (_meta.get("category") or "").lower()
             _dtype = (_meta.get("document_type") or "").lower()
             _rel = _chunk.get("rel_path") or _meta.get("rel_path", "")
-            # Also check rel_path: 1,541 circular-file chunks were tagged document_type="Statute"
-            # (because the chunker classified the quoted statutory text, not the container doc).
             if "circular" not in _cat and "circular" not in _dtype and "circular" not in _rel.lower():
                 continue
             _fname = _rel.split("/")[-1].split("\\")[-1] if _rel else ""
@@ -892,11 +866,19 @@ class Retriever:
                     self._circular_index[_key] = []
                 if _ci not in self._circular_index[_key]:
                     self._circular_index[_key].append(_ci)
+                # Runtime Defense: Ensure sibling chunk has document-level circular key in memory
+                _pkeys = _meta.get("provision_keys")
+                if _pkeys is None:
+                    _meta["provision_keys"] = [_key]
+                elif _key not in _pkeys:
+                    if isinstance(_pkeys, list):
+                        _pkeys.append(_key)
+                    else:
+                        _meta["provision_keys"] = list(_pkeys) + [_key]
         logger.info(f"Circular index built: {len(self._circular_index)} circular numbers indexed")
 
-        # Build notification number index for O(1) direct notification lookup.
-        # Maps "NOTIF_{num}_{year}" → list of chunk indices from notification filenames.
-        # Covers patterns like: "12_2017", "Notification-No-12-2017", "40-2021-CT"
+        # Build notification number index for O(1) direct notification lookup and propagate
+        # document-level notification identity to all sibling chunks in memory.
         self._notification_index: dict = {}
         _notif_num_re = re.compile(
             r'(?:notif(?:ication)?[-_.\s]*(?:no[-_.\s]*)?)?(\d+)[-_/](\d{4})',
@@ -918,7 +900,38 @@ class Retriever:
                     self._notification_index[_key] = []
                 if _ci not in self._notification_index[_key]:
                     self._notification_index[_key].append(_ci)
+                # Runtime Defense: Ensure sibling chunk has document-level notification key in memory
+                _pkeys = _meta.get("provision_keys")
+                if _pkeys is None:
+                    _meta["provision_keys"] = [_key]
+                elif _key not in _pkeys:
+                    if isinstance(_pkeys, list):
+                        _pkeys.append(_key)
+                    else:
+                        _meta["provision_keys"] = list(_pkeys) + [_key]
         logger.info(f"Notification index built: {len(self._notification_index)} notification numbers indexed")
+
+        # Build provision index for O(1) direct section/rule/circular lookup.
+        # Maps citation key (e.g. "CGST_SEC_16", "CIRCULAR_184") → list of chunk indices.
+        # Built once at startup; each query with explicit citations does a
+        # dict lookup instead of a linear scan over all chunks.
+        self._provision_index: dict = {}
+        for _ci, _chunk in enumerate(self.chunks):
+            _meta = _chunk.get("metadata", {})
+            # Accept both old "provisions"/"citations" schema and new "provision_keys"
+            # schema used by the Database_V2.0 corpus (ingested 2026-08-19+).
+            _refs = set(
+                (_meta.get("provisions") or [])
+                + (_meta.get("citations") or [])
+                + (_meta.get("provision_keys") or [])
+            )
+            for _ref in _refs:
+                # Skip generic sentinel keys — they match everything, not useful
+                if _ref and _ref not in ("ACT", "RULES", "NOTIFICATION"):
+                    if _ref not in self._provision_index:
+                        self._provision_index[_ref] = []
+                    self._provision_index[_ref].append(_ci)
+        logger.info(f"Provision index built: {len(self._provision_index)} citation keys")
 
         # ── TF-IDF matrix (3rd RRF signal) — background build ────────────────
         # TF-IDF assigns ultra-high scores to rare legal tokens — specific circular
@@ -1536,8 +1549,9 @@ class Retriever:
             # P2.5b: sort by statute-path priority so Act/ chunks are pinned before AAR/ICAI
             _raw_indices = self._provision_index.get(ref, [])
             _sorted_indices = sorted(_raw_indices, key=_idx_sort_key)
+            _key_cap = 4 if ref.startswith(("CIRCULAR_", "NOTIF_")) else _PER_KEY_CAP
             for idx in _sorted_indices:
-                if _ref_count >= _PER_KEY_CAP:
+                if _ref_count >= _key_cap:
                     break
                 if _pin(idx, ref):
                     _ref_count += 1
@@ -1632,18 +1646,20 @@ class Retriever:
         # --- Direct section/rule reference lookup (pinned, bypasses FAISS ranking) ---
         # Combines: (a) explicit citations from the query text itself, and
         #           (b) predicted governing authorities from the taxonomy.
-        # These chunks are pinned so they always reach the CrossEncoder.
         _explicit_refs = _extract_query_refs(query)
+        _has_explicit_cir = any(r.startswith("CIRCULAR_") for r in _explicit_refs)
 
         # --- Priority 13: LLM-based Generic Provision Resolver ---
         # resolve_provisions() was removed; taxonomy + explicit refs cover this role.
         # Kept as an empty list so downstream code that unions _llm_refs is unaffected.
         _llm_refs: list[str] = []
 
+        _tax_circulars = [] if _has_explicit_cir else [
+            f"CIRCULAR_{c.split('_')[-1]}" if c.startswith("CIRCULAR_") else c
+            for c in _taxonomy["circulars"]
+        ]
         _taxonomy_refs = (
-            _taxonomy["sections"] + _taxonomy["rules"] +
-            [f"CIRCULAR_{c.split('_')[-1]}" if c.startswith("CIRCULAR_") else c
-             for c in _taxonomy["circulars"]]
+            _taxonomy["sections"] + _taxonomy["rules"] + _tax_circulars
         )
         # Order: explicit (highest confidence) → LLM-resolved → taxonomy (fallback)
         _query_refs = list(dict.fromkeys(_explicit_refs + _llm_refs + _taxonomy_refs))  # dedup, preserve order
@@ -2777,10 +2793,13 @@ class Retriever:
 
         # Direct ref lookup: pin explicit citations + taxonomy-predicted authorities
         _explicit_refs = _extract_query_refs(query)
+        _has_explicit_cir = any(r.startswith("CIRCULAR_") for r in _explicit_refs)
+        _tax_circulars = [] if _has_explicit_cir else [
+            f"CIRCULAR_{c.split('_')[-1]}" if c.startswith("CIRCULAR_") else c
+            for c in _sr_taxonomy["circulars"]
+        ]
         _tax_refs = (
-            _sr_taxonomy["sections"] + _sr_taxonomy["rules"] +
-            [f"CIRCULAR_{c.split('_')[-1]}" if c.startswith("CIRCULAR_") else c
-             for c in _sr_taxonomy["circulars"]]
+            _sr_taxonomy["sections"] + _sr_taxonomy["rules"] + _tax_circulars
         )
         _query_refs = list(dict.fromkeys(_explicit_refs + _tax_refs))
         _pinned = self._direct_ref_lookup(_query_refs) if _query_refs else []
