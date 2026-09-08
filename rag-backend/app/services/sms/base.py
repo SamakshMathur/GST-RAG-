@@ -42,12 +42,12 @@ class BaseSMSProvider(ABC):
     def send_otp(self, phone: str, otp: str, template_type: str = "registration") -> SMSResult:
         """
         Send an OTP message to the specified phone number.
-        
+
         Args:
             phone: 10-digit Indian phone number or E.164 phone string.
             otp: Exactly 6-digit numeric OTP string.
             template_type: Purpose of OTP (default: 'registration').
-            
+
         Returns:
             SMSResult containing delivery status.
         """
