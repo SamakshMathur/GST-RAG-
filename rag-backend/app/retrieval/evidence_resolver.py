@@ -17,17 +17,20 @@ from typing import Any, Dict, Iterable, List
 
 _REF_PATTERNS = (
     r"\b(?:section|sec\.)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
-    r"\b(?:rule)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
-    r"\b(?:article)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
+    r"\b(?:rule|rul\.)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
+    r"\b(?:article|art\.)\s*\d+[A-Za-z]?(?:\s*\(\s*[\da-zA-Z]+\s*\))*",
+    r"\b(?:schedule|sch\.)\s*(?:[ivxlcdm]+|\d+)",
     r"\b(?:circular|notification)\s+(?:no\.?\s*)?[\w./-]+",
     r"\bcir\s*[-/]?\s*\d+",
     r"\bnotif\s*[-/]?\s*\d+/\d+",
+    r"\b(?:order|ruling|appeal|petition|wp|ca|slp)\s*(?:no\.?)?\s*[\w./-]+",
 )
 _REF_RE = re.compile("|".join(_REF_PATTERNS), re.IGNORECASE)
 _CIR_RE = re.compile(r"\b(?:circular\s*(?:no\.?|number)?\s*(\d+)|cir\s*[-/]?\s*(\d+))\b", re.IGNORECASE)
 _NOTIF_RE = re.compile(r"\b(?:notification|notif)\s*(?:no\.?|number)?\s*(\d{1,4})\s*/\s*(\d{2,4})\b", re.IGNORECASE)
 _SEC_RE = re.compile(r"\b(?:section|sec\.)\s*(\d+[a-z]?)\b", re.IGNORECASE)
 _RUL_RE = re.compile(r"\b(?:rule|rul\.)\s*(\d+[a-z]?)\b", re.IGNORECASE)
+_LANDMARK_CASES = ("mohit minerals", "safari retreats", "vkc footsteps", "bharti airtel", "union of india")
 _CONFLICT_TERMS = re.compile(
     r"\b(?:overruled|reversed|distinguished|superseded|amended|contrary|"
     r"notwithstanding|however|in contrast|not available|ineligible|eligible|"
@@ -72,12 +75,16 @@ def _source_profile(path: str) -> tuple[str, str, int]:
 
 
 def _normalise_ref(value: str) -> str:
-    return re.sub(r"\s+", " ", value.lower().replace("sec.", "section")).strip()
+    return re.sub(r"\s+", " ", value.lower().replace("sec.", "section").replace("rul.", "rule").replace("art.", "article")).strip()
 
 
 def _query_refs(query: str) -> set[str]:
     q = query or ""
-    refs = {_normalise_ref(match) for match in _REF_RE.findall(q)}
+    refs = set()
+    for match in _REF_RE.findall(q):
+        norm = _normalise_ref(match)
+        if norm not in ("circular", "notification", "section", "rule", "article", "schedule"):
+            refs.add(norm)
     for m in _CIR_RE.finditer(q):
         num = m.group(1) or m.group(2)
         refs.add(f"circular_{num}")
@@ -96,6 +103,26 @@ def _query_refs(query: str) -> set[str]:
         refs.add(f"rule_{rul}")
         refs.add(f"rul_{rul}")
         refs.add(f"cgst_rul_{rul}")
+
+    # Case parties: "X v. Y", "X vs Y"
+    for m in re.finditer(r'\b([A-Za-z0-9&._-]+(?:\s+[A-Za-z0-9&._-]+){0,3})\s+(?:v\.|vs\.?|versus)\s+([A-Za-z0-9&._-]+(?:\s+[A-Za-z0-9&._-]+){0,3})\b', q, re.IGNORECASE):
+        p1, p2 = _normalise_ref(m.group(1)), _normalise_ref(m.group(2))
+        if len(p1) >= 3:
+            refs.add(p1)
+        if len(p2) >= 3:
+            refs.add(p2)
+
+    # "In re [Applicant/Entity]"
+    for m in re.finditer(r'\bin\s+re[:\s]+([A-Za-z0-9&._-]+(?:\s+[A-Za-z0-9&._-]+){0,4}?)(?:\s+(?:regarding|on|for|re|matter|ruling|decision|order|dated|against|vs\.?|v\.)|\?|$|,)', q, re.IGNORECASE):
+        entity = _normalise_ref(m.group(1))
+        if len(entity) >= 3:
+            refs.add(entity)
+
+    q_lower = q.lower()
+    for case in _LANDMARK_CASES:
+        if case in q_lower:
+            refs.add(case)
+
     return refs
 
 
@@ -124,11 +151,32 @@ def _chunk_refs(chunk: Dict[str, Any]) -> set[str]:
             refs.add(f"rule_{rul}")
             refs.add(f"rul_{rul}")
 
-    text_content = _text(chunk)
-    path_content = _path(chunk)
-    combined_text = f"{text_content} {path_content}"
+    # Case metadata & filename stem extraction
+    for field in ("case_name", "title", "applicant", "order_no", "order_number"):
+        val = metadata.get(field)
+        if val and isinstance(val, str):
+            val_norm = _normalise_ref(val)
+            refs.add(val_norm)
+            for m in re.finditer(r'\b([a-zA-Z0-9\s]{3,35})\s+(?:v\.|vs\.?|versus)\s+([a-zA-Z0-9\s]{3,35})\b', val_norm):
+                refs.add(_normalise_ref(m.group(1)))
+                refs.add(_normalise_ref(m.group(2)))
 
-    refs.update(_normalise_ref(match) for match in _REF_RE.findall(text_content))
+    # Filename stem extraction from rel_path
+    rel_path = _path(chunk)
+    if rel_path:
+        fname = rel_path.split("/")[-1].split("\\")[-1]
+        stem = re.sub(r'\.[a-zA-Z0-9]+$', '', fname)
+        cleaned_stem = re.sub(r'[-_]+', ' ', stem).strip()
+        if len(cleaned_stem) >= 3 and cleaned_stem not in ("act", "rules", "circular", "notification", "index"):
+            refs.add(_normalise_ref(cleaned_stem))
+
+    text_content = _text(chunk)
+    combined_text = f"{text_content} {rel_path}".lower()
+
+    for match in _REF_RE.findall(text_content):
+        norm = _normalise_ref(match)
+        if norm not in ("circular", "notification", "section", "rule", "article", "schedule"):
+            refs.add(norm)
 
     for m in _CIR_RE.finditer(combined_text):
         num = m.group(1) or m.group(2)
@@ -149,6 +197,10 @@ def _chunk_refs(chunk: Dict[str, Any]) -> set[str]:
         refs.add(f"rul_{rul}")
         refs.add(f"cgst_rul_{rul}")
 
+    for case in _LANDMARK_CASES:
+        if case in combined_text:
+            refs.add(case)
+
     return refs
 
 
@@ -165,9 +217,6 @@ def resolve_evidence(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str,
         return []
 
     requested_refs = _query_refs(query)
-    is_explicit_circular_query = any(r.startswith("circular_") for r in requested_refs)
-    is_explicit_notif_query = any(r.startswith("notif_") for r in requested_refs)
-
     prepared: List[Dict[str, Any]] = []
     by_ref: dict[str, list[Dict[str, Any]]] = defaultdict(list)
 
@@ -184,19 +233,20 @@ def resolve_evidence(chunks: List[Dict[str, Any]], query: str) -> List[Dict[str,
         # source is not blindly displaced by a vaguely related primary source.
         authority_bonus = max(0.0, (8 - authority_rank) * 0.025)
 
-        # Check if this chunk matches the explicitly requested circular or notification
-        matches_requested_guidance = bool(exact_refs and (
-            (is_explicit_circular_query and any(r.startswith("circular_") for r in exact_refs)) or
-            (is_explicit_notif_query and any(r.startswith("notif_") for r in exact_refs))
-        ))
-
-        if matches_requested_guidance:
-            # Query-intent boost: when the user explicitly queries a specific circular or notification,
-            # that exact candidate is elevated to primary evidence for this query intent without
-            # altering the universal statutory/case-law authority hierarchy for general queries.
+        # Intent-Aware Precedence (Generic across all legal authority classes):
+        # When the user's query explicitly names or references an authority (whether Act
+        # Section, Rule, Notification, Circular, AAR, Supreme Court, High Court, etc.)
+        # and this candidate matches that requested authority (exact_refs is non-empty),
+        # it receives the query-intent boost.
+        # Unrelated authorities that were not explicitly cited do not receive this boost,
+        # ensuring that an explicitly requested Authority X is not displaced by an unrelated
+        # Authority Y merely because Y has a higher generic hierarchy rank or broader taxonomy score.
+        # For general queries with no explicit references, exact_refs is empty, so the
+        # universal statutory and case-law authority hierarchy remains completely intact.
+        if exact_refs:
             exact_bonus = 0.50 + min(0.20, len(exact_refs) * 0.10)
         else:
-            exact_bonus = min(0.20, len(exact_refs) * 0.10)
+            exact_bonus = 0.0
 
         base_score = float(
             chunk.get("_final_legal_score", chunk.get("_rerank_score", chunk.get("_debug_score", 0.0)))
