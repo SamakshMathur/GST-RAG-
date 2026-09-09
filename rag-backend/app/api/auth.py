@@ -28,7 +28,9 @@ from app.security import (
     verify_token,
     get_current_user,
     is_admin,
+    ROLE_ADMIN,
 )
+from app.utils.phone import normalize_phone
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -43,6 +45,12 @@ OTP_EXPIRY_MINUTES = 10
 OTP_RATE_LIMIT_PER_HOUR = 3
 
 ADMIN_MASTER_SECRET = os.getenv("ADMIN_MASTER_SECRET", "")
+
+# The one phone number that should always land as admin — everyone else who
+# logs in (DEV_MODE's phone-only flow included) gets the normal "user" role.
+# Configured via env var (ECS task definition), never a literal in source, so
+# changing it is a data/infra change, not a code change.
+PRIMARY_ADMIN_PHONE = normalize_phone(os.getenv("PRIMARY_ADMIN_PHONE", ""))
 
 FAST2SMS_API_KEY = os.getenv("FAST2SMS_API_KEY", "")
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
@@ -589,13 +597,23 @@ async def send_otp(request: Request, req: SendOTPRequest):
             )
 
         username = f"dev_{re.sub(r'[^a-zA-Z0-9_]', '_', req.contact)[-30:]}"
+        # Everyone who logs in through this phone-only flow gets a normal
+        # "user" account — except PRIMARY_ADMIN_PHONE, which always lands as
+        # admin. (verify_otp also self-heals this on every login, so it holds
+        # even if the account already existed before PRIMARY_ADMIN_PHONE was
+        # configured.)
+        is_primary_admin = (
+            req.method == "phone"
+            and PRIMARY_ADMIN_PHONE
+            and normalize_phone(req.contact) == PRIMARY_ADMIN_PHONE
+        )
         user_doc = {
             "username": username,
             "full_name": "Dev User",
             "profession": "Other",
             "gender": "Prefer not to say",
             "verified": False,
-            "role": "user",
+            "role": ROLE_ADMIN if is_primary_admin else "user",
             "created_at": utc_now(),
             "last_login": None,
         }
@@ -858,10 +876,25 @@ async def verify_otp(request: Request, req: VerifyOTPRequest):
             detail="User not found",
         )
 
-    role    = user.get("role", "user")
-    plan    = user.get("plan", "basic")
     now_utc = utc_now()
     now_ms  = int(now_utc.timestamp() * 1000)
+
+    # The one designated phone number (PRIMARY_ADMIN_PHONE) always lands as
+    # admin, regardless of how or when the account was created — covers the
+    # DEV_MODE phone-only quick-login path below as well as a normal
+    # registered account. Self-heals on every login so it can't drift.
+    if (
+        PRIMARY_ADMIN_PHONE
+        and user.get("phone")
+        and normalize_phone(user["phone"]) == PRIMARY_ADMIN_PHONE
+        and user.get("role") != ROLE_ADMIN
+    ):
+        users_col.update_one({"_id": user["_id"]}, {"$set": {"role": ROLE_ADMIN}})
+        user["role"] = ROLE_ADMIN
+        logger.info(f"Primary admin phone matched — role set to admin | phone=***{user['phone'][-4:]}")
+
+    role = user.get("role", "user")
+    plan = user.get("plan", "basic")
 
     # Session timer is NOT started at login — it only starts after payment (see payments.py).
     users_col.update_one(

@@ -152,6 +152,14 @@ class Database:
                     tls=MONGO_URI.startswith("mongodb+srv"),
                     retryWrites=True,
                     w="majority",
+                    # Every datetime the app writes comes from utc_now() (timezone-
+                    # aware). Without tz_aware, PyMongo hands datetimes back as
+                    # naive on read, so anything comparing a stored value against
+                    # utc_now() (e.g. auth.py's OTP rate-limit window) throws
+                    # "can't compare offset-naive and offset-aware datetimes" the
+                    # moment a record already exists — e.g. any second OTP request
+                    # from the same contact. Root cause of intermittent OTP 500s.
+                    tz_aware=True,
                 )
                 self.client.admin.command("ping")
                 logger.info("MongoDB connection successful")
