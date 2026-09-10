@@ -70,3 +70,6 @@ rag-backend/.flashrank_cache/
 *.pem
 *accessKeys*
 *_accessKeys*
+
+# Local model/cache files
+rag-backend/.cache/
