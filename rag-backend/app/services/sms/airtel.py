@@ -28,6 +28,8 @@ class AirtelSMSProvider(BaseSMSProvider):
         self,
         api_url: Optional[str] = None,
         customer_id: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
         sender_id: Optional[str] = None,
@@ -36,18 +38,22 @@ class AirtelSMSProvider(BaseSMSProvider):
     ):
         self.api_url = api_url or os.getenv(
             "AIRTEL_SMS_URL",
-            "https://iqsms.airtel.in/gateway/airtel-iq-sms-utility/bulk-sms"
+            "https://iqsms.airtel.in/api/v1/send-prepaid-sms"
         )
         self.customer_id = customer_id or os.getenv("AIRTEL_CUSTOMER_ID", "")
-        self.api_key = api_key or os.getenv("AIRTEL_API_KEY", "")
+        self.username = username or os.getenv("AIRTEL_USERNAME") or self.customer_id
         self.api_secret = api_secret or os.getenv("AIRTEL_API_SECRET", "")
+        self.password = password or os.getenv("AIRTEL_PASSWORD") or self.api_secret
+        self.api_key = api_key or os.getenv("AIRTEL_API_KEY", "")
         self.sender_id = sender_id or os.getenv("AIRTEL_SENDER_ID", AIRTEL_DLT_HEADER)
         self.entity_id = entity_id or os.getenv("AIRTEL_ENTITY_ID", AIRTEL_DLT_PE_ID)
         self.timeout_seconds = timeout_seconds
 
     def is_configured(self) -> bool:
         """Check if required Airtel credentials and endpoints are present."""
-        return bool(self.api_url and (self.customer_id or self.api_key))
+        has_basic_auth = bool(self.customer_id and (self.password or self.api_secret))
+        has_bearer_auth = bool(self.api_key)
+        return bool(self.api_url and (has_basic_auth or has_bearer_auth))
 
     def build_payload(self, phone: str, otp: str, template_type: str = "registration") -> Dict[str, Any]:
         """Construct the DLT-compliant payload for Airtel SMS Gateway."""
@@ -92,8 +98,11 @@ class AirtelSMSProvider(BaseSMSProvider):
 
         # Auth header construction
         auth = None
-        if self.customer_id and self.api_secret:
-            auth = (self.customer_id, self.api_secret)
+        resolved_user = self.username or self.customer_id
+        resolved_pass = self.password or self.api_secret
+
+        if resolved_user and resolved_pass:
+            auth = (resolved_user, resolved_pass)
         elif self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 

@@ -77,7 +77,12 @@ export const registerApi = async (userData: {
 export const sendOtpApi = async (
   contact: string,
   method: 'email' | 'phone'
-): Promise<{ otp_preview?: string }> => {
+): Promise<{
+  message?: string;
+  expires_in_minutes?: number;
+  cooldown_seconds?: number;
+  otp_preview?: string;
+}> => {
   const res = await AXIOS_INSTANCE.post(
     '/api/auth/send-otp',
     {

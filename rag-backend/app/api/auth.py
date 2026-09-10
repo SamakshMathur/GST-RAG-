@@ -6,7 +6,7 @@ import hashlib
 import time
 
 from datetime import datetime, timedelta, timezone
-from app.utils.time import utc_now
+from app.utils.time import utc_now, normalize_to_utc
 from typing import Literal, Optional
 
 import requests as _requests
@@ -39,8 +39,10 @@ logger = logging.getLogger(__name__)
 
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() == "true"
 
-OTP_EXPIRY_MINUTES = 10
+OTP_EXPIRY_MINUTES = 2        # 2 minutes to match registered Airtel DLT template
+OTP_RESEND_COOLDOWN_SECONDS = 60  # 60-second cooldown between resend requests
 OTP_RATE_LIMIT_PER_HOUR = 3
+MAX_OTP_ATTEMPTS = 5          # Max failed verify attempts before OTP is burned
 
 ADMIN_MASTER_SECRET = os.getenv("ADMIN_MASTER_SECRET", "")
 
@@ -269,74 +271,20 @@ def _verify_secret(value: str, expected: str) -> bool:
     return _secrets.compare_digest(value, expected)
 
 
-def _send_sms_otp(phone: str, otp: str) -> None:
-    """Send OTP via AWS SNS. Uses task role credentials — no API key needed."""
-    import boto3
-    # Normalise to E.164: strip leading zeros, prepend +91 for India
-    number = phone.strip().lstrip("+")
-    if len(number) == 10:
-        number = "91" + number
-    e164 = "+" + number
-    sns = boto3.client("sns", region_name=os.getenv("AWS_DEFAULT_REGION", "ap-south-1"))
-    sns.publish(
-        PhoneNumber=e164,
-        Message=f"Your LETA TEC OTP is {otp}. Valid for 10 minutes. Do not share.",
-        MessageAttributes={
-            "AWS.SNS.SMS.SMSType": {"DataType": "String", "StringValue": "Transactional"},
-            "AWS.SNS.SMS.SenderID": {"DataType": "String", "StringValue": "LETATEC"},
-        },
-    )
-    logger.info(f"SMS OTP sent via SNS | phone=***{phone[-4:]}")
-
-
-def send_sms_otp(phone: str, otp: str) -> None:
+def send_sms_otp(phone: str, otp: str) -> bool:
+    """Dispatch SMS OTP using configured provider (Airtel DLT primary, AWS SNS/Fast2SMS fallback)."""
     if DEV_MODE:
-        logger.info(f"[DEV MODE] SMS OTP {otp} for {phone} (Fast2SMS/SNS call bypassed)")
-        return
+        logger.info(f"[DEV MODE] SMS OTP dispatched for ***{phone[-4:]} (mock delivery)")
+        return True
 
-    sns_error: Exception | None = None
-
-    # Try AWS SNS first
-    try:
-        _send_sms_otp(phone, otp)
-        return
-    except Exception as e:
-        sns_error = e
-        logger.warning(f"AWS SNS failed: {e}. Trying Fast2SMS fallback...")
-
-    # Fallback to Fast2SMS
-    if FAST2SMS_API_KEY:
-        try:
-            response = _requests.post(
-                "https://www.fast2sms.com/dev/bulkV2",
-                headers={
-                    "authorization": FAST2SMS_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "route": "otp",
-                    "variables_values": otp,
-                    "numbers": phone,
-                },
-                timeout=10,
-            )
-            response.raise_for_status()
-            logger.info(f"SMS OTP sent via Fast2SMS to ***{phone[-4:]}")
-            return
-        except Exception as err:
-            logger.error(f"Fast2SMS sending failed: {err}")
-            raise RuntimeError(
-                f"All SMS providers failed — SNS: {sns_error}; Fast2SMS: {err}"
-            )
-
-    # No fallback key available — surface as an error, not a silent no-op
-    raise RuntimeError(
-        f"SMS delivery failed: SNS error ({sns_error}); no Fast2SMS key configured"
-    )
+    from app.services.sms import send_sms_otp as _dispatch_sms
+    res = _dispatch_sms(phone, otp, template_type="registration")
+    return res.success
 
 
 def verify_sms_otp(phone: str, submitted_otp: str, expected_otp: str) -> bool:
-    if DEV_MODE:
+    is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+    if DEV_MODE and not is_prod:
         return bool(re.match(r"^\d{6}$", submitted_otp))
     return _secrets.compare_digest(expected_otp, submitted_otp)
 
@@ -474,17 +422,85 @@ async def register_user(request: Request, user: UserRegister):
     })
 
     if existing_phone:
-        _log_auth_activity(
-            request=request,
-            started_at=started_at,
-            action="register",
-            metadata={"phone": user.phone, "email": user.email, "error": "phone_already_registered"},
-            success=False,
-        )
-        raise HTTPException(
-            status_code=400,
-            detail="Phone number already registered",
-        )
+        if existing_phone.get("verified", False) is True:
+            _log_auth_activity(
+                request=request,
+                started_at=started_at,
+                action="register",
+                metadata={"phone": user.phone, "email": user.email, "error": "phone_already_registered"},
+                success=False,
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="Phone number already registered",
+            )
+        else:
+            # Unverified pending registration: update registration details safely
+            if user.email:
+                existing_email = users_col.find_one({"email": user.email})
+                if existing_email and str(existing_email["_id"]) != str(existing_phone["_id"]):
+                    if existing_email.get("verified", False) is True:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Email already registered",
+                        )
+
+            username = (
+                re.sub(r"[^a-zA-Z0-9_]", "_", user.email.split("@")[0])[:30]
+                if user.email
+                else f"user_{user.phone[-6:]}"
+            )
+            update_set = {
+                "username": username,
+                "full_name": user.full_name,
+                "profession": user.profession,
+                "gender": user.gender,
+                "updated_at": utc_now(),
+            }
+            update_unset = {}
+            if user.email:
+                update_set["email"] = user.email
+            else:
+                update_unset["email"] = ""
+
+            update_op = {"$set": update_set}
+            if update_unset:
+                update_op["$unset"] = update_unset
+
+            try:
+                users_col.update_one(
+                    {"_id": existing_phone["_id"]},
+                    update_op,
+                )
+            except DuplicateKeyError as e:
+                error_str = str(e)
+                _log_auth_activity(
+                    request=request,
+                    started_at=started_at,
+                    action="register",
+                    metadata={"phone": user.phone, "email": user.email, "error": "duplicate_key", "detail": error_str},
+                    success=False,
+                )
+                if "email" in error_str:
+                    raise HTTPException(status_code=400, detail="Email already registered")
+                raise HTTPException(status_code=400, detail="Account already registered")
+
+            logger.info(f"Updated pending unverified registration | username={username} | phone=***{user.phone[-4:]}")
+            _log_auth_activity(
+                request=request,
+                started_at=started_at,
+                action="register",
+                user={
+                    "username": username,
+                    "phone": user.phone,
+                    **({"email": user.email} if user.email else {}),
+                },
+                metadata={"phone": user.phone, "email": user.email, "updated_pending": True},
+            )
+            return {
+                "message": "Account created successfully",
+                "username": username,
+            }
 
     if user.email:
 
@@ -511,11 +527,10 @@ async def register_user(request: Request, user: UserRegister):
         else f"user_{user.phone[-6:]}"
     )
 
-    users_col.insert_one({
+    user_doc = {
         "username": username,
         "full_name": user.full_name,
         "phone": user.phone,
-        "email": user.email,
         "profession": user.profession,
         "gender": user.gender,
         "verified": False,
@@ -523,7 +538,26 @@ async def register_user(request: Request, user: UserRegister):
         "plan": "basic",
         "created_at": utc_now(),
         "last_login": None,
-    })
+    }
+    if user.email:
+        user_doc["email"] = user.email
+
+    try:
+        users_col.insert_one(user_doc)
+    except DuplicateKeyError as e:
+        error_str = str(e)
+        _log_auth_activity(
+            request=request,
+            started_at=started_at,
+            action="register",
+            metadata={"phone": user.phone, "email": user.email, "error": "duplicate_key", "detail": error_str},
+            success=False,
+        )
+        if "phone" in error_str:
+            raise HTTPException(status_code=400, detail="Phone number already registered")
+        if "email" in error_str:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Account already registered")
 
     logger.info(f"User registered | username={username}")
     _log_auth_activity(
@@ -533,7 +567,7 @@ async def register_user(request: Request, user: UserRegister):
         user={
             "username": username,
             "phone": user.phone,
-            "email": user.email,
+            **({"email": user.email} if user.email else {}),
         },
         metadata={"phone": user.phone, "email": user.email},
     )
@@ -637,12 +671,32 @@ async def send_otp(request: Request, req: SendOTPRequest):
     otp_record = otp_col.find_one({
         "contact": req.contact
     })
+    is_initial_registration_send = (
+        user.get("verified", False) is False and otp_record is None
+    )
 
     rate_window_start = None
     request_count = 0
 
     if otp_record:
-        rate_window_start = (
+        # Enforce 60-second resend cooldown
+        created_at = normalize_to_utc(otp_record.get("created_at"))
+        if created_at and (now - created_at).total_seconds() < OTP_RESEND_COOLDOWN_SECONDS:
+            cooldown_remaining = max(1, int(OTP_RESEND_COOLDOWN_SECONDS - (now - created_at).total_seconds()))
+            _log_auth_activity(
+                request=request,
+                started_at=started_at,
+                action="send_otp",
+                user=user,
+                metadata={**_auth_contact_metadata(req.contact, req.method), "error": "resend_cooldown_active"},
+                success=False,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail=f"Please wait {cooldown_remaining} seconds before requesting a new OTP.",
+            )
+
+        rate_window_start = normalize_to_utc(
             otp_record.get("rate_window_start")
             or otp_record.get("created_at")
         )
@@ -663,10 +717,11 @@ async def send_otp(request: Request, req: SendOTPRequest):
         )
         raise HTTPException(
             status_code=429,
-            detail="Too many OTP requests",
+            detail="Too many OTP requests. Please try again in an hour.",
         )
 
     otp = _generate_otp()
+    otp_hash = hashlib.sha256(otp.encode()).hexdigest()
     rate_window_start = rate_window_start or now
     request_count += 1
 
@@ -680,43 +735,47 @@ async def send_otp(request: Request, req: SendOTPRequest):
             "$set": {
                 "contact": req.contact,
                 "method": req.method,
-                "otp": otp,
+                "otp_hash": otp_hash,        # hashed — raw OTP never stored
                 "verified": False,
+                "failed_attempts": 0,         # brute-force counter reset on fresh OTP
                 "created_at": now,
                 "expires_at": expires_at,
                 "rate_window_start": rate_window_start,
                 "request_count": request_count,
-            }
+            },
+            "$unset": {"otp": ""},
         },
         upsert=True,
     )
 
-    try:
-        if req.method == "phone":
-            send_sms_otp(req.contact, otp)
-        else:
-            _send_email_otp(req.contact, otp)
-    except Exception as sms_err:
-        # Roll back the OTP record so the rate counter doesn't increment
-        # for a delivery failure the user couldn't control.
-        otp_col.delete_one({"contact": req.contact})
-        logger.error(f"OTP delivery failed for ***{req.contact[-4:]}: {sms_err}")
-        _log_auth_activity(
-            request=request,
-            started_at=started_at,
-            action="send_otp",
-            user=user,
-            metadata={**_auth_contact_metadata(req.contact, req.method), "error": "sms_delivery_failed"},
-            success=False,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail="Failed to send OTP. Please try again in a moment.",
-        )
+    if req.method == "phone":
+        sms_ok = send_sms_otp(req.contact, otp)
+        if not sms_ok and not DEV_MODE:
+            # Transactional safety: don't leave active OTP record if provider failed
+            otp_col.delete_one({"contact": req.contact})
+            # If this was a newly created unverified registration and initial SMS delivery failed,
+            # cleanly roll back the pending account so an unusable orphan is not left behind.
+            if is_initial_registration_send:
+                users_col.delete_one({"_id": user["_id"]})
+            _log_auth_activity(
+                request=request,
+                started_at=started_at,
+                action="send_otp",
+                user=user,
+                metadata={**_auth_contact_metadata(req.contact, req.method), "error": "sms_delivery_failed"},
+                success=False,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to send SMS OTP. Please check the mobile number and try again.",
+            )
+    else:
+        _send_email_otp(req.contact, otp)
 
     response = {
         "message": "OTP sent successfully",
         "expires_in_minutes": OTP_EXPIRY_MINUTES,
+        "cooldown_seconds": OTP_RESEND_COOLDOWN_SECONDS,
     }
 
     if DEV_MODE:
@@ -775,7 +834,9 @@ async def verify_otp(request: Request, req: VerifyOTPRequest):
             detail="No pending OTP found",
         )
 
-    if utc_now() > otp_record["expires_at"]:
+    expires_at = normalize_to_utc(otp_record.get("expires_at"))
+
+    if not expires_at or utc_now() > expires_at:
 
         otp_col.delete_one({
             "contact": req.contact
@@ -793,47 +854,63 @@ async def verify_otp(request: Request, req: VerifyOTPRequest):
             detail="OTP expired",
         )
 
-    if otp_record["method"] == "phone":
-        if not verify_sms_otp(req.contact, req.otp, otp_record["otp"]):
+    # ── OTP Verification (hash-based, brute-force protected) ────────────────────────────────────
+    def _otp_matches() -> bool:
+        """Return True if the submitted OTP matches the stored hash (or legacy plaintext)."""
+        stored_hash = otp_record.get("otp_hash")
+        if stored_hash:
+            submitted_hash = hashlib.sha256(req.otp.encode()).hexdigest()
+            return _secrets.compare_digest(stored_hash, submitted_hash)
+        # Legacy records written before this migration: compare plaintext (migration window only)
+        legacy_otp = otp_record.get("otp", "")
+        return _secrets.compare_digest(legacy_otp, req.otp)
+
+    is_prod = os.getenv("ENVIRONMENT", "").lower() in ("production", "prod")
+    if DEV_MODE and not is_prod:
+        otp_valid = bool(re.match(r"^\d{6}$", req.otp))  # any valid 6-digit OTP passes in dev
+    else:
+        otp_valid = _otp_matches()
+
+    if not otp_valid:
+        otp_col.update_one(
+            {"contact": req.contact},
+            {"$inc": {"failed_attempts": 1}},
+        )
+        new_attempts = otp_record.get("failed_attempts", 0) + 1
+        if new_attempts >= MAX_OTP_ATTEMPTS:
+            # Burn the OTP — attacker must request a fresh one
+            otp_col.delete_one({"contact": req.contact})
             _log_auth_activity(
                 request=request,
                 started_at=started_at,
                 action="verify_otp",
-                metadata={**_auth_contact_metadata(req.contact, "phone"), "error": "invalid_otp"},
+                metadata={
+                    **_auth_contact_metadata(req.contact, otp_record.get("method")),
+                    "error": "otp_max_attempts_exceeded",
+                },
                 success=False,
             )
             raise HTTPException(
-                status_code=400,
-                detail="Invalid OTP",
+                status_code=429,
+                detail="Too many failed attempts. Please request a new OTP.",
             )
-    else:
-        if DEV_MODE:
-            if not re.match(r"^\d{6}$", req.otp):
-                _log_auth_activity(
-                    request=request,
-                    started_at=started_at,
-                    action="verify_otp",
-                    metadata={**_auth_contact_metadata(req.contact, "email"), "error": "invalid_otp"},
-                    success=False,
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid OTP",
-                )
-        else:
-            if not _secrets.compare_digest(otp_record["otp"], req.otp):
-                _log_auth_activity(
-                    request=request,
-                    started_at=started_at,
-                    action="verify_otp",
-                    metadata={**_auth_contact_metadata(req.contact, "email"), "error": "invalid_otp"},
-                    success=False,
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid OTP",
-                )
+        _log_auth_activity(
+            request=request,
+            started_at=started_at,
+            action="verify_otp",
+            metadata={
+                **_auth_contact_metadata(req.contact, otp_record.get("method")),
+                "error": "invalid_otp",
+                "attempts_remaining": MAX_OTP_ATTEMPTS - new_attempts,
+            },
+            success=False,
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid OTP",
+        )
 
+    # OTP correct — consume it immediately to prevent replay
     otp_col.delete_one({
         "contact": req.contact
     })

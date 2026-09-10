@@ -49,7 +49,7 @@ const LoginPage: React.FC = () => {
         login(session, false);
         navigate(from, { replace: true });
       } else {
-        setStep('otp'); setOtp(['', '', '', '', '', '']); setCountdown(30);
+        setStep('otp'); setOtp(['', '', '', '', '', '']); setCountdown(data?.cooldown_seconds || 60);
       }
     } catch (err: any) {
       const d = err.response?.data?.detail;
@@ -65,8 +65,8 @@ const LoginPage: React.FC = () => {
     if (countdown > 0) return;
     setLoading(true); setError(null);
     try {
-      await sendOtpApi(contact.trim(), method);
-      setOtp(['', '', '', '', '', '']); setCountdown(30);
+      const data = await sendOtpApi(contact.trim(), method);
+      setOtp(['', '', '', '', '', '']); setCountdown(data?.cooldown_seconds || 60);
     } catch (err: any) {
       const d = err.response?.data?.detail;
       if (typeof d === 'string') setError(d);
@@ -172,16 +172,27 @@ const LoginPage: React.FC = () => {
                   id="contact"
                   type={method === 'phone' ? 'tel' : 'email'}
                   value={contact}
-                  onChange={e => setContact(e.target.value)}
+                  onChange={e => {
+                    const val = method === 'phone' ? e.target.value.replace(/\D/g, '') : e.target.value;
+                    setContact(val);
+                  }}
                   required
-                  className="input-auth"
+                  className={`input-auth ${
+                    method === 'phone' && contact.length > 0 && contact.length !== 10
+                      ? '!text-red-400 !border-red-500/50 focus:!border-red-500 focus:!ring-1 focus:!ring-red-500/30'
+                      : ''
+                  }`}
+                  aria-invalid={method === 'phone' ? (contact.length > 0 ? contact.length !== 10 : undefined) : undefined}
                   placeholder={method === 'phone' ? '10-digit mobile number' : 'you@example.com'}
-                  maxLength={method === 'phone' ? 15 : undefined}
                   autoFocus
                 />
               </div>
 
-              <button type="submit" disabled={loading || !contact.trim()} className="btn-auth-primary">
+              <button
+                type="submit"
+                disabled={loading || (method === 'phone' ? contact.length !== 10 : !contact.trim())}
+                className="btn-auth-primary"
+              >
                 {loading ? 'Sending OTP...' : 'Send OTP'}
               </button>
 
