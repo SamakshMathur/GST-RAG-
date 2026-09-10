@@ -9,8 +9,25 @@ interface AskLetaWidgetProps {
 }
 
 const AskLetaWidget: React.FC<AskLetaWidgetProps> = ({ domain = 'gst', contextDesc = 'GST scenarios' }) => {
+  // LetaWorkspace auto-restores whatever session was last active for this
+  // domain (sessionStorage `leta_active_session_<domainId>`) — the right
+  // default when returning to an in-progress chat, but wrong for this card:
+  // arriving from the advisory info page should always start a fresh
+  // consultation, not resume whatever the user was last looking at. Clearing
+  // the key right before navigating is enough — LetaWorkspace has no other
+  // fallback that picks a session automatically, so with nothing to restore
+  // it just starts empty.
+  const handleLaunchClick = () => {
+    try {
+      sessionStorage.removeItem(`leta_active_session_${domain}`);
+    } catch {
+      // sessionStorage unavailable (private browsing, etc.) — navigation
+      // still proceeds; worst case the old session restores as before.
+    }
+  };
+
   return (
-    <Link to={`/${domain}/leta`} className="block">
+    <Link to={`/${domain}/leta`} className="block" onClick={handleLaunchClick}>
       <motion.div
         className="group relative rounded-leta p-8 overflow-hidden cursor-pointer transition-all duration-300 bg-[#151922] border border-white/[0.06] shadow-2xl h-full flex flex-col justify-between"
         whileHover={{
@@ -52,7 +69,7 @@ const AskLetaWidget: React.FC<AskLetaWidgetProps> = ({ domain = 'gst', contextDe
               color: '#67E8F9',
             }}
           >
-            Launch Advisory Workspace
+            Enter Workspace
           </button>
         </div>
       </motion.div>

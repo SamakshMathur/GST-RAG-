@@ -639,11 +639,17 @@ const LetaWorkspace: React.FC = () => {
     const onScroll = () => {
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
       userScrolledUpRef.current = !nearBottom;
-      setShowScrollBtn(!nearBottom);
+      // The empty state (greeting + suggestions + composer, centered as one
+      // group) can be taller than a short viewport on its own, which trips
+      // the same "not near bottom" math this button uses for an actual
+      // conversation — showing "scroll to bottom" floating over the
+      // suggestion rows with nothing real to scroll to. Only meaningful
+      // once there's a conversation to jump back to.
+      setShowScrollBtn(!nearBottom && messages.length > 0);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [messages.length]);
 
   useEffect(() => {
     if (!userScrolledUpRef.current) scrollToBottom(false, isStreaming ? 'auto' : 'smooth');
@@ -1739,7 +1745,7 @@ const LetaWorkspace: React.FC = () => {
           <div className={`min-h-0 relative flex flex-col ${isEmptyState ? 'flex-shrink-0' : 'flex-1'}`}>
             {/* Scroll-to-bottom floating button */}
             <AnimatePresence>
-              {showScrollBtn && (
+              {showScrollBtn && messages.length > 0 && (
                 <motion.button
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
