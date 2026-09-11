@@ -39,7 +39,13 @@ MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.72"))
 MAX_RESPONSE_POINTS = int(os.getenv("MAX_RESPONSE_POINTS", "15"))
 
 # ─── Reranking & Optimization ─────────────────────────────────────────────
-RERANKING_MODEL = "BAAI/bge-reranker-v2-m3"
+# Must be one of FlashRank's own curated model names (it pulls from its own
+# model registry, not an arbitrary Hugging Face repo path) — "BAAI/bge-reranker-v2-m3"
+# was never valid here and 404'd on every single boot, silently disabling
+# reranking entirely. ms-marco-MiniLM-L-12-v2 is FlashRank's flagship
+# cross-encoder: ~34MB, CPU-friendly (this runs on a 2-vCPU Fargate task,
+# no GPU), no domain mismatch for English legal text.
+RERANKING_MODEL = "ms-marco-MiniLM-L-12-v2"
 CACHE_DIR = ".diskcache_v5"
 
 # ─── Token Budget & Cost Controls ─────────────────────────────────────────
