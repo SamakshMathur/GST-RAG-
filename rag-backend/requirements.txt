@@ -45,3 +45,16 @@ rank_bm25
 ftfy
 fuzzywuzzy
 python-Levenshtein
+flashrank   # cross-encoder reranker (app.retrieval.retriever) — was missing
+            # from this file entirely, so the Docker image never actually
+            # had it; retriever.py's import degrades gracefully to
+            # self.ranker = None instead of crashing, but that means
+            # reranking silently never ran. Confirmed via production logs:
+            # "Failed to load FlashRank reranker: 'NoneType' object is not
+            # callable" on every single boot.
+redis       # rate limiter (app.rate_limiter) falls back to in-memory when
+            # this import fails — same missing-from-requirements gap.
+            # REDIS_URL is already configured as an ECS secret; installing
+            # this lets the rate limiter actually use it instead of
+            # silently running in-memory-only (fine for a single task, but
+            # doesn't share limits across multiple tasks once back at 2+).
