@@ -1421,6 +1421,8 @@ async def _execute_ask_question_with_file(
     filename = (file.filename or "").lower()
     
     extracted_text = ""
+    image_data_b64 = None
+    image_media_type = None
     # 2. Parse based on extension
     if filename.endswith(".pdf"):
         from app.ingestion.pdf_scanned import extract_text_from_scanned_pdf
@@ -1438,8 +1440,13 @@ async def _execute_ask_question_with_file(
             os.remove(tmp_path)
             
     elif filename.endswith((".png", ".jpg", ".jpeg")):
-        from app.ingestion.pdf_scanned import extract_text_from_image
-        extracted_text = extract_text_from_image(file_bytes)
+        # Real vision, not OCR: send the actual image bytes to Claude as a
+        # multimodal input (see synthesize_answer_stream) so it can genuinely
+        # "see" screenshots/photos — charts, handwriting, diagrams, UI, etc. —
+        # the same way ChatGPT does, instead of extracting text out of them.
+        import base64 as _base64
+        image_media_type = "image/png" if filename.endswith(".png") else "image/jpeg"
+        image_data_b64 = _base64.b64encode(file_bytes).decode("utf-8")
     elif filename.endswith(".txt"):
         extracted_text = file_bytes.decode("utf-8", errors="replace")
     elif filename.endswith(".docx"):
@@ -1523,7 +1530,9 @@ async def _execute_ask_question_with_file(
     file_context = ""
     if extracted_text.strip():
         file_context = f"\n--- UPLOADED FILE CONTENT ({file.filename}) ---\n{extracted_text}\n--- END UPLOADED FILE ---\n\n"
-    
+    elif image_data_b64:
+        file_context = f"\n--- UPLOADED IMAGE ({file.filename}) ---\n[The user attached an image. It is provided directly to you as a visual input alongside this message — look at it to answer.]\n--- END UPLOADED IMAGE ---\n\n"
+
     full_rag_context = file_context + rag_context
     if history_context:
         full_rag_context = f"--- CHAT HISTORY ---\n{history_context}\n--- END HISTORY ---\n\n" + full_rag_context
@@ -1534,7 +1543,10 @@ async def _execute_ask_question_with_file(
 
     # Generate Stream
     from app.generation.synthesizer import synthesize_answer_stream
-    response_stream = synthesize_answer_stream(question_text, full_rag_context)
+    response_stream = synthesize_answer_stream(
+        question_text, full_rag_context,
+        image_data=image_data_b64, image_media_type=image_media_type,
+    )
 
     from fastapi.responses import StreamingResponse
     wrapped_stream = stream_and_save(

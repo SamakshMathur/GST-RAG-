@@ -184,6 +184,8 @@ def _stream_claude(
     use_thinking: bool = False,
     max_tokens_override: int = None,
     is_draft: bool = False,
+    image_data: str = None,
+    image_media_type: str = None,
 ):
     """
     3-tier model routing:
@@ -192,10 +194,31 @@ def _stream_claude(
       use_haiku=False, use_thinking=True      → Sonnet + extended thinking  (complex drafting)
 
     Only visible text deltas are yielded; thinking tokens stay internal.
+
+    image_data / image_media_type: when a screenshot/photo is attached, the
+    caller passes the base64-encoded bytes + media type here so Claude sees
+    the actual pixels as a multimodal content block (real vision), instead of
+    relying on OCR'd text pasted into the context.
     """
     model = CLAUDE_UTILITY_MODEL if use_haiku else CLAUDE_MAIN_MODEL
 
-    messages = [{"role": "user", "content": question}]
+    if image_data and image_media_type:
+        messages = [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_media_type,
+                        "data": image_data,
+                    },
+                },
+                {"type": "text", "text": question},
+            ],
+        }]
+    else:
+        messages = [{"role": "user", "content": question}]
 
     # Anthropic prompt caching: pass system prompt as a content block with
     # cache_control so Anthropic caches it server-side.
@@ -321,7 +344,10 @@ def _stream_claude(
             if not use_haiku:
                 logger.warning("Attempting emergency fallback to Haiku...")
                 yield "\n[System: Falling back to fast-drafting mode...]\n\n"
-                yield from _stream_claude(question, system_prompt, use_haiku=True)
+                yield from _stream_claude(
+                    question, system_prompt, use_haiku=True,
+                    image_data=image_data, image_media_type=image_media_type,
+                )
             else:
                 yield "Error generating answer. Please try again."
             return
@@ -331,18 +357,32 @@ def _stream_claude(
 # OpenAI / Ollama streaming generator (kept as fallback)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _stream_openai(question: str, system_prompt: str, response_mode: str = "detailed"):
+def _stream_openai(
+    question: str,
+    system_prompt: str,
+    response_mode: str = "detailed",
+    image_data: str = None,
+    image_media_type: str = None,
+):
+    def _user_content():
+        if image_data and image_media_type:
+            return [
+                {"type": "image_url", "image_url": {"url": f"data:{image_media_type};base64,{image_data}"}},
+                {"type": "text", "text": question},
+            ]
+        return question
+
     if response_mode == "draft":
-        messages = [{"role": "user", "content": question}]
+        messages = [{"role": "user", "content": _user_content()}]
     elif response_mode == "detailed":
         messages = [
             {"role": "system",    "content": system_prompt + "\n\n" + _COT_INSTRUCTION},
             {"role": "user",      "content": _ONESHOT_USER},
             {"role": "assistant", "content": _ONESHOT_ASSISTANT},
-            {"role": "user",      "content": question},
+            {"role": "user",      "content": _user_content()},
         ]
     else:
-        messages = [{"role": "user", "content": question}]
+        messages = [{"role": "user", "content": _user_content()}]
 
     api_params = {
         "model": LLM_MODEL,
@@ -386,6 +426,8 @@ def synthesize_answer_stream(
     context: str,
     session_is_draft: bool = False,
     force_haiku: bool = False,
+    image_data: str = None,
+    image_media_type: str = None,
 ):
     """
     Public API: Generates a streaming answer.
@@ -399,6 +441,11 @@ def synthesize_answer_stream(
 
     force_haiku: force Haiku model regardless of complexity (used by /ask-sync
     to stay within API Gateway's 29-second integration timeout).
+
+    image_data / image_media_type: base64-encoded bytes + media type (e.g.
+    "image/png") of an attached screenshot/photo. When set, the image is sent
+    to the model as a real multimodal vision input alongside the question,
+    instead of relying on OCR'd text.
     """
     logger.info(
         f"synthesize_answer_stream: starting | q_len={len(question)} | "
@@ -490,6 +537,8 @@ def synthesize_answer_stream(
             use_thinking=use_thinking,
             max_tokens_override=max_tokens,
             is_draft=is_draft,
+            image_data=image_data,
+            image_media_type=image_media_type,
         )
     else:
         logger.info(
@@ -499,6 +548,8 @@ def synthesize_answer_stream(
             question=question,
             system_prompt=system_prompt,
             response_mode="draft" if is_draft else "detailed",
+            image_data=image_data,
+            image_media_type=image_media_type,
         )
 
 
