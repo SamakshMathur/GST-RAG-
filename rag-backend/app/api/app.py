@@ -1496,35 +1496,46 @@ async def _execute_ask_question_with_file(
                 for msg in recent:
                     history_context += f"{msg['role'].upper()}: {msg['content']}\n"
 
-    # Offload to thread: route_query calls classify_intent() which makes a
-    # blocking Haiku network call (5s cap).  Must not run on the event loop.
-    import asyncio as _asyncio_route
-    route = await _asyncio_route.to_thread(route_query, question_text)
-    from app.generation.synthesizer import _estimate_complexity
-    _file_complexity = _estimate_complexity(question_text)
-    if _file_complexity >= 0.80:
-        from app.retrieval.query_refiner import generate_advanced_queries
-        advanced_queries = generate_advanced_queries(question_text)
-        refined_q = advanced_queries.get("queries", [question_text])[0]
+    if image_data_b64:
+        # Image question: skip the full statutory-corpus retrieval (FAISS +
+        # BM25 + cross-encoder rerank over the whole GST/FEMA/company-law/
+        # income-tax corpus). The answer here comes from Claude actually
+        # looking at the image, not from retrieved chunks — confirmed in
+        # production logs that this retrieval step alone was ~85-90% of
+        # total request time (8-13.5s out of ~10-11s) for zero benefit on
+        # "what does this image show" style questions.
+        chunks = []
+        rag_context = ""
     else:
-        advanced_queries = {"queries": [question_text], "hyde_document": "", "topic": "General", "subtopic": None}
-        refined_q = question_text
+        # Offload to thread: route_query calls classify_intent() which makes a
+        # blocking Haiku network call (5s cap).  Must not run on the event loop.
+        import asyncio as _asyncio_route
+        route = await _asyncio_route.to_thread(route_query, question_text)
+        from app.generation.synthesizer import _estimate_complexity
+        _file_complexity = _estimate_complexity(question_text)
+        if _file_complexity >= 0.80:
+            from app.retrieval.query_refiner import generate_advanced_queries
+            advanced_queries = generate_advanced_queries(question_text)
+            refined_q = advanced_queries.get("queries", [question_text])[0]
+        else:
+            advanced_queries = {"queries": [question_text], "hyde_document": "", "topic": "General", "subtopic": None}
+            refined_q = question_text
 
-    retriever = get_retriever()
-    chunks = retriever.search(
-        query=refined_q,
-        top_k=15,
-        allowed_sources=route["use_sources"],
-        advanced_queries=advanced_queries,
-        domain_paths=route.get("domain_paths", []),
-    )
-    from app.generation.context_builder import build_context
-    from app.generation.context_compressor import compress_context
-    rag_context = (
-        build_context(chunks)
-        + "\n\n--- COMPRESSED STATUTORY EXCERPTS (for quick reference) ---\n\n"
-        + compress_context(chunks, question_text)
-    )
+        retriever = get_retriever()
+        chunks = retriever.search(
+            query=refined_q,
+            top_k=15,
+            allowed_sources=route["use_sources"],
+            advanced_queries=advanced_queries,
+            domain_paths=route.get("domain_paths", []),
+        )
+        from app.generation.context_builder import build_context
+        from app.generation.context_compressor import compress_context
+        rag_context = (
+            build_context(chunks)
+            + "\n\n--- COMPRESSED STATUTORY EXCERPTS (for quick reference) ---\n\n"
+            + compress_context(chunks, question_text)
+        )
 
     # Combine File Content with RAG Context
     file_context = ""
