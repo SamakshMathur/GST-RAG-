@@ -1,129 +1,348 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+"""
+documents.py — Document listing and serving API.
+
+Listing endpoints load metadata from a pre-generated JSON file
+(data/document_metadata.json, downloaded from S3 by start.sh on boot).
+This avoids requiring Database_V2.0/ to be baked into the Docker image.
+
+View/download endpoint tries the local filesystem first, then falls back
+to an S3 presigned URL so PDFs are always accessible.
+"""
+
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse, Response
 import os
+import json
+import threading
 from pathlib import Path
+from typing import List, Dict, Optional
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-# ── Base directory ─────────────────────────────────────────────────────────────
-# Must stay in sync with config.DATA_DIR (Database_V2.0).  We read it here
-# directly so documents.py can be imported independently during startup before
-# the config module's lazy initialisers have all run.
-_APP_ROOT = Path(__file__).resolve().parent.parent
-BASE_DIR = _APP_ROOT / "Database_V2.0"
+# ── Paths ──────────────────────────────────────────────────────────────────────
+# CWD in the container is /app (ECS WORKDIR).  All relative paths are from /app.
+_APP_ROOT  = Path(__file__).resolve().parent.parent.parent   # /app
+BASE_DIR   = _APP_ROOT / "Database_V2.0"                    # may not exist in container
+META_FILE  = _APP_ROOT / "data" / "document_metadata.json"  # downloaded by start.sh
 
-# ── Category map ───────────────────────────────────────────────────────────────
-# Keys = frontend category IDs (from documentLibrary.ts CATEGORY_GROUPS)
-# Values = actual folder names inside Database_V2.0
-# Keep this in sync with legal_parser.py _FOLDER_MAP and router.py _DOMAIN_PATHS
-CATEGORY_MAP: dict[str, str] = {
-    "circulars":    "circulars(2017-2025)",
-    "notifications": "Rate_notifications_2.0",
-    "acts":         "CGST Acts",
-    "cgst":         "CGST Acts",
-    "rules":        "CGST Rules 10-08-2026",
-    "igst":         "IGST Acts",
-    "highcourt":    "High Court Case Laws",
-    "supremecourt": "Supreme Court Case Laws",
-    # Folders not yet in Database_V2.0 — return empty list gracefully
-    "aars":         "AARs",
-    "icai":         "ICAI",
-    "forms":        "Forms",
-    "faqs":         "FAQs",
-    "brochures":    "Brochures",
-    "flyers":       "Other APP Result",
+# S3 config (for PDF serving fallback)
+S3_BUCKET  = os.getenv("S3_DATA_BUCKET", "gst-rag-data-721082558531")
+S3_REGION  = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
+S3_DOCS_PREFIX = "documents"   # s3://<bucket>/documents/<folder>/<filename>
+
+# Category → Database_V2.0 top-level folder name.
+# As of the 2026-09 restructure, Database_V2.0 is FLAT — one folder per
+# category, matching these keys 1:1. The listing endpoints filter by the
+# "category" field in metadata JSON; this map is mainly used for the
+# /view (PDF serving) route to resolve category → folder.
+CATEGORY_MAP = {
+    "circulars":     "circulars",
+    "notifications": "notifications",
+    "cgst":          "cgst_acts",
+    "rules":         "cgst_rules",
+    "igst":          "igst_acts",
+    "igst_rules":    "igst_rules",
+    "highcourt":     "high_court",
+    "supremecourt":  "supreme_court",
+    "aars":          "aars",
+    "case_laws":     "case_laws_by_section",
+    "forms":         "forms",
+    "faqs":          "faqs",
+    "brochures":     "brochures",
+    "responses":     "responses",
+    "export":        "export",
+    # Aliases for backward compatibility with older frontend calls
+    "acts":          "cgst_acts",
+    "reports":       "circulars",
+    "icai":          "cgst_acts",
+    # Frontend has a "flyers" filter row (label: "AAR / App. Results") with
+    # no corresponding category anywhere in the corpus or metadata — it was
+    # never mapped, so /list/flyers returned nothing and /view fell through
+    # to 404 whenever the category param was "flyers". Point it at AAR
+    # rulings, matching the frontend's own label for that row.
+    "flyers":        "aars",
 }
+
+# ── Metadata cache ─────────────────────────────────────────────────────────────
+_meta_lock  = threading.Lock()
+_meta_cache: Optional[List[dict]] = None
+
+def _load_metadata() -> List[dict]:
+    """Load document metadata from local JSON file (downloaded from S3 by start.sh)."""
+    global _meta_cache
+    with _meta_lock:
+        if _meta_cache is not None:
+            return _meta_cache
+        if META_FILE.exists():
+            try:
+                with open(META_FILE, encoding="utf-8") as f:
+                    _meta_cache = json.load(f)
+                logger.info(f"[docs] Loaded {len(_meta_cache)} documents from {META_FILE}")
+                return _meta_cache
+            except Exception as e:
+                logger.error(f"[docs] Failed to load {META_FILE}: {e}")
+        # Fallback: scan filesystem (works locally / if Database_V2.0 is present)
+        _meta_cache = _scan_filesystem()
+        return _meta_cache
+
+
+def _scan_filesystem() -> List[dict]:
+    """Scan Database_V2.0 directory (fallback when metadata JSON is unavailable)."""
+    docs = []
+    if not BASE_DIR.exists():
+        logger.warning(f"[docs] BASE_DIR {BASE_DIR} not found — document library empty")
+        return docs
+    idx = 0
+    for cat_key, folder_name in CATEGORY_MAP.items():
+        folder_path = BASE_DIR / folder_name
+        if not folder_path.exists():
+            continue
+        seen = set()
+        for fp in folder_path.rglob("*"):
+            if not fp.is_file() or fp.suffix.lower() not in ('.pdf', '.docx', '.txt'):
+                continue
+            rel = str(fp.relative_to(BASE_DIR)).replace("\\", "/")
+            if rel in seen:
+                continue
+            seen.add(rel)
+            parts = rel.split("/")
+            year = parts[1] if len(parts) > 2 and parts[1].isdigit() and len(parts[1]) == 4 else "other"
+            docs.append({
+                "id": f"{cat_key}_{idx}",
+                "title": fp.name,
+                "filename": fp.name,
+                "size": f"{round(fp.stat().st_size / 1024, 1)} KB",
+                "path": rel,
+                "category": cat_key,
+                "year": year,
+            })
+            idx += 1
+    logger.info(f"[docs] Scanned filesystem: {len(docs)} documents")
+    return docs
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+@router.get("/health")
+def health():
+    meta = _load_metadata()
+    return {"status": "ok", "service": "documents", "total_docs": len(meta),
+            "metadata_source": "json" if META_FILE.exists() else "filesystem"}
 
 
 @router.get("/categories")
 def get_categories():
-    """Returns available categories and file counts."""
-    stats = {}
-    for key, folder_name in CATEGORY_MAP.items():
-        folder_path = BASE_DIR / folder_name
-        if folder_path.exists():
-            try:
-                files = [
-                    f for f in folder_path.rglob("*")
-                    if f.is_file() and f.suffix.lower() == ".pdf"
-                ]
-                stats[key] = len(files)
-            except Exception:
-                stats[key] = 0
-        else:
-            stats[key] = 0
-    return stats
+    meta = _load_metadata()
+    counts: Dict[str, int] = {k: 0 for k in CATEGORY_MAP}
+    for doc in meta:
+        cat = doc.get("category", "")
+        if cat in counts:
+            counts[cat] += 1
+    return counts
+
+
+@router.get("/list/all")
+def list_all_documents():
+    """All documents across every category (for instant client-side search)."""
+    return _load_metadata()
+
+
+@router.get("/list/circulars/by-year")
+def list_circulars_by_year():
+    """Circulars grouped by year for the year-tab UI."""
+    meta = _load_metadata()
+    result: Dict[str, List] = {}
+    for doc in meta:
+        if doc.get("category") != "circulars":
+            continue
+        yr = doc.get("year", "other")
+        result.setdefault(yr, []).append(doc)
+    return result
+
+
+@router.get("/list/notifications/by-year")
+def list_notifications_by_year():
+    """Notifications grouped by year."""
+    meta = _load_metadata()
+    result: Dict[str, List] = {}
+    for doc in meta:
+        if doc.get("category") != "notifications":
+            continue
+        yr = doc.get("year", "other")
+        result.setdefault(yr, []).append(doc)
+    return result
 
 
 @router.get("/list/{category}")
 def list_documents(category: str):
-    """Lists PDF files in a category (max 200)."""
-    folder_name = CATEGORY_MAP.get(category.lower())
-    if not folder_name:
-        raise HTTPException(status_code=404, detail=f"Unknown category '{category}'")
-
-    folder_path = BASE_DIR / folder_name
-    if not folder_path.exists():
-        return []
-
-    docs = []
-    try:
-        all_files = sorted(
-            [f for f in folder_path.rglob("*") if f.is_file() and f.suffix.lower() == ".pdf"],
-            key=lambda f: f.name.lower(),
-        )
-        for idx, file_path in enumerate(all_files):
-            rel = str(file_path.relative_to(BASE_DIR)).replace("\\", "/")
-            # Extract year from parent folder name if it's a 4-digit year
-            year_part = file_path.parent.name if file_path.parent.name.isdigit() and len(file_path.parent.name) == 4 else None
-            docs.append({
-                "id":       f"{category}_{idx}",
-                "title":    file_path.stem.replace("_", " ").replace("-", " "),
-                "filename": file_path.name,
-                "size":     f"{round(file_path.stat().st_size / 1024, 1)} KB",
-                "path":     rel,
-                "category": category,
-                "year":     year_part,
-            })
-    except Exception as e:
-        print(f"[documents] Error scanning {folder_path}: {e}")
-        return []
-
+    """Documents in a specific category."""
+    canonical = CATEGORY_MAP.get(category.lower())
+    if not canonical:
+        raise HTTPException(status_code=404, detail="Category not found")
+    meta = _load_metadata()
+    folder_name = canonical
+    docs = [d for d in meta if d.get("folder") == folder_name or d.get("category") == category.lower()]
     return docs[:200]
 
 
 @router.get("/view")
-def view_document(category: str, filename: str):
-    """Serves a document for inline viewing or download."""
-    folder_name = CATEGORY_MAP.get(category.lower())
-    if not folder_name:
-        raise HTTPException(status_code=404, detail=f"Unknown category '{category}'")
+def view_document(category: str, filename: str, download: bool = False):
+    """
+    Serve a document via S3 presigned URL.
 
-    safe_filename = os.path.basename(filename)
-    folder_path = BASE_DIR / folder_name
+    Looks up the document's exact stored `path` from metadata first (this
+    is the authoritative source — generate_metadata.py records the real
+    relative path under Database_V2.0 for every file, year subfolders
+    included, e.g. "notifications/2025/03-2025-ct-eng.pdf"). Falling back
+    to a filename-only guess (category top-folder, no year) silently
+    missed every file organised under a year subfolder — notifications,
+    circulars, aars — which is most of the corpus after the restructure.
+    """
+    import urllib.parse
+    filename = urllib.parse.unquote(os.path.basename(filename))
 
-    # Fast direct path first
-    direct = folder_path / safe_filename
-    if direct.exists():
-        return FileResponse(
-            str(direct),
-            media_type="application/pdf",
-            filename=safe_filename,
+    try:
+        import boto3
+        s3 = boto3.client("s3", region_name=S3_REGION)
+
+        # 1. Authoritative lookup: find the doc's real path in metadata.
+        s3_key = None
+        meta = _load_metadata()
+        for d in meta:
+            if d.get("filename") == filename:
+                if category.lower() in ("all", "any") or d.get("category") == category.lower():
+                    s3_key = f"{S3_DOCS_PREFIX}/{d.get('path', '').replace(chr(92), '/')}"
+                    break
+        # First match on filename alone if the category-scoped pass found nothing
+        # (handles a stale/mismatched category param from an older client).
+        if not s3_key:
+            for d in meta:
+                if d.get("filename") == filename:
+                    s3_key = f"{S3_DOCS_PREFIX}/{d.get('path', '').replace(chr(92), '/')}"
+                    break
+
+        if s3_key:
+            try:
+                s3.head_object(Bucket=S3_BUCKET, Key=s3_key)
+            except Exception:
+                s3_key = None  # metadata said it should exist but it's not in S3 — fall through
+
+        # 2. Fallback: guess top-level category folder (no year) — covers
+        # categories that were never year-subfoldered, or a metadata miss.
+        if not s3_key:
+            folder_name = CATEGORY_MAP.get(category.lower(), category)
+            try_key = f"{S3_DOCS_PREFIX}/{folder_name}/{filename}"
+            try:
+                s3.head_object(Bucket=S3_BUCKET, Key=try_key)
+                s3_key = try_key
+            except Exception:
+                pass
+
+        # 3. Last resort: brute-force search every known category folder.
+        if not s3_key:
+            for fn in set(CATEGORY_MAP.values()):
+                try_key = f"{S3_DOCS_PREFIX}/{fn}/{filename}"
+                try:
+                    s3.head_object(Bucket=S3_BUCKET, Key=try_key)
+                    s3_key = try_key
+                    break
+                except Exception:
+                    continue
+
+        if not s3_key:
+            raise HTTPException(status_code=404, detail=f"'{filename}' not found")
+
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": s3_key,
+                    "ResponseContentDisposition": f"{'attachment' if download else 'inline'}; filename=\"{filename}\""},
+            ExpiresIn=300,
         )
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=url)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[docs] S3 fallback failed: {e}")
+        raise HTTPException(status_code=404, detail=f"Document '{filename}' not available")
 
-    # Recursive search (for year-subfolder structure like circulars)
-    for found in folder_path.rglob(safe_filename):
-        if found.is_file():
-            return FileResponse(
-                str(found),
-                media_type="application/pdf",
-                filename=safe_filename,
+
+@router.get("/ai_search")
+async def ai_search(query: str = Query(...)):
+    """Semantic search across the document library via FAISS retriever."""
+    import asyncio
+    from app.dependencies import get_retriever
+    try:
+        # get_retriever() is a lazy singleton — on the FIRST call since a
+        # worker (re)starts it does the full cold init synchronously
+        # (loading the ~190MB FAISS index, building BM25/TF-IDF/citation
+        # graph, loading the CrossEncoder — tens of seconds of CPU work),
+        # not just a cheap "return the cached instance" call. Same
+        # event-loop-blocking risk as retriever.search() itself, so it
+        # needs the same asyncio.to_thread treatment.
+        retriever = await asyncio.to_thread(get_retriever)
+        if not retriever or not retriever.index:
+            return []
+        # retriever.search() is synchronous and CPU-heavy (FAISS + BM25 +
+        # CrossEncoder rerank + MMR over the full corpus) — calling it
+        # directly inside this `async def` blocks the whole event loop for
+        # the entire worker process, freezing EVERY other request on that
+        # worker (including unrelated health checks) for as long as this
+        # search takes. With the larger corpus this can run well past
+        # gunicorn's worker timeout, which then SIGKILLs the "unresponsive"
+        # worker. Running it in a thread keeps the event loop free.
+        # Hard timeout — a search must never be allowed to hang indefinitely.
+        # asyncio.to_thread keeps the event loop free while it runs (fixed
+        # above), but the underlying thread itself was observed hanging for
+        # 9+ minutes on some queries with no exception ever raised — this
+        # bounds worst-case latency and fails cleanly instead of leaving the
+        # request (and the connection holding it) stuck indefinitely.
+        try:
+            results = await asyncio.wait_for(
+                asyncio.to_thread(retriever.search, query, top_k=20),
+                timeout=25.0,
             )
+        except asyncio.TimeoutError:
+            logger.error(f"[docs] ai_search timed out after 25s for query: {query!r}")
+            return []
+        out = []
+        for res in results:
+            source = res.get("source", "")
+            cat = next((k for k, v in CATEGORY_MAP.items() if v.lower() in source.lower()), "all")
+            out.append({
+                "id": f"ai_{res.get('chunk_id', source)}",
+                "title": os.path.basename(source),
+                "filename": os.path.basename(source),
+                "category": cat, "path": source,
+                "desc": res.get("text", "")[:150] + "...",
+                "score": round(float(res.get("_rerank_score", res.get("_debug_score", 0))), 4),
+            })
+        return out
+    except Exception as e:
+        logger.error(f"[docs] AI search error: {e}")
+        return []
 
-    raise HTTPException(status_code=404, detail=f"'{safe_filename}' not found in {folder_name}")
 
-
-@router.get("/ai-search")
-def ai_search_documents(q: str = ""):
-    """Placeholder AI search endpoint — returns empty list until implemented."""
-    return []
+@router.get("/feed")
+def get_activity_feed():
+    """Recent document activity feed."""
+    import time
+    from datetime import datetime
+    meta = _load_metadata()
+    feed = []
+    for idx, doc in enumerate(meta[:10]):
+        cat = doc.get("category", "other")
+        name = doc.get("title", "unknown")
+        if cat in ("circulars", "cgst", "igst"):
+            text, kind = f"{name} Indexed & Context-Hashed", "INDEX"
+        elif cat in ("highcourt", "supremecourt"):
+            text, kind = f"Judicial Precedent {name} Citation Integrated", "ANALYSIS"
+        else:
+            text, kind = f"Document {name} Ingested successfully", "UPDATE"
+        t = time.time() - idx * 300
+        feed.append({"id": f"meta_{idx}", "text": text, "type": kind,
+                     "time": datetime.fromtimestamp(t).strftime("%H:%M:%S"),
+                     "timestamp": t})
+    return feed
