@@ -2089,6 +2089,28 @@ const LetaWorkspace: React.FC = () => {
                     handleAsk();
                   }
                 }}
+                onPaste={e => {
+                  // Screenshot / copied-image paste: attach it the same way
+                  // the paperclip button does, instead of dumping it as text.
+                  const items = e.clipboardData?.items;
+                  if (!items) return;
+                  for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    if (item.type.startsWith('image/')) {
+                      const file = item.getAsFile();
+                      if (!file) continue;
+                      e.preventDefault();
+                      const ext = item.type.split('/')[1] || 'png';
+                      const named = new File(
+                        [file],
+                        file.name && file.name !== 'image.png' ? file.name : `pasted-image-${Date.now()}.${ext}`,
+                        { type: file.type }
+                      );
+                      setSelectedFile(named);
+                      break;
+                    }
+                  }
+                }}
               />
 
               {/* Session time remaining — bottom-left of input box */}
