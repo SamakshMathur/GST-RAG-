@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from pathlib import Path
 
 from app.retrieval.retriever import Retriever
@@ -19,18 +20,32 @@ CHUNKS_PATH      = Path(os.getenv("CHUNKS_PATH",      _DEFAULT_CHUNKS))
 
 # ---------- Lazy Load Retriever ----------
 _retriever = None
+# Guards the build below — get_retriever() is a plain `def`, so FastAPI runs
+# it in a threadpool, and concurrent requests during startup used to all see
+# `_retriever is None` at once and each kick off its own full Retriever()
+# build (FAISS + BM25 + per-source sub-indices + cross-encoder + citation
+# graph) in parallel. Harmless with a small retriever; with the fuller one
+# several of those running at once is enough to OOM-kill the worker —
+# confirmed happening in production. Double-checked locking: the fast path
+# (already built) never touches the lock at all.
+_retriever_lock = threading.Lock()
 
 def get_retriever():
     global _retriever
-    if _retriever is None or _retriever.index is None:
-        logger.info(
-            f"Initializing Retriever (lazy load) | "
-            f"index={FAISS_INDEX_PATH} | chunks={CHUNKS_PATH}"
-        )
-        _retriever = Retriever(
-            index_path=FAISS_INDEX_PATH,
-            chunks_path=CHUNKS_PATH,
-        )
+    if _retriever is not None and _retriever.index is not None:
+        return _retriever
+    with _retriever_lock:
+        # Re-check — another thread may have finished building it while this
+        # one was waiting for the lock.
+        if _retriever is None or _retriever.index is None:
+            logger.info(
+                f"Initializing Retriever (lazy load) | "
+                f"index={FAISS_INDEX_PATH} | chunks={CHUNKS_PATH}"
+            )
+            _retriever = Retriever(
+                index_path=FAISS_INDEX_PATH,
+                chunks_path=CHUNKS_PATH,
+            )
     return _retriever
 
 def preload_all_models():
@@ -66,9 +81,10 @@ def preload_all_models():
 def reload_retriever():
     """Force-reload the retriever after incremental ingestion."""
     global _retriever
-    logger.info("Hot-reloading Retriever after new document ingestion...")
-    _retriever = Retriever(
-        index_path=FAISS_INDEX_PATH,
-        chunks_path=CHUNKS_PATH,
-    )
+    with _retriever_lock:
+        logger.info("Hot-reloading Retriever after new document ingestion...")
+        _retriever = Retriever(
+            index_path=FAISS_INDEX_PATH,
+            chunks_path=CHUNKS_PATH,
+        )
     return _retriever
