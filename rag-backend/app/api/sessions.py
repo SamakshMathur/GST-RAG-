@@ -27,6 +27,13 @@ class SessionCreate(BaseModel):
         default="New Chat",
         max_length=120
     )
+    client_ref: Optional[str] = Field(
+        default=None,
+        max_length=120,
+        description="Advisor-set client/matter tag, e.g. 'ABC Pvt Ltd — GST Audit'. "
+                    "Deliberately separate from title: one client can have several "
+                    "differently-titled sessions that should still share memory."
+    )
 
     @field_validator("title")
     @classmethod
@@ -40,6 +47,14 @@ class SessionCreate(BaseModel):
             return "New Chat"
 
         return v[:120]
+
+    @field_validator("client_ref")
+    @classmethod
+    def validate_client_ref(cls, v):
+        if v is None:
+            return None
+        v = v.strip()
+        return v[:120] if v else None
 
 
 class MessageInput(BaseModel):
@@ -77,6 +92,7 @@ class Session(BaseModel):
     session_id: str
     user_id: str
     title: str
+    client_ref: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
@@ -89,6 +105,7 @@ class SessionSummary(BaseModel):
     # throwing a ValidationError that collapses the whole list endpoint with a
     # generic 21-byte "Internal Server Error".
     title: str = "Untitled"
+    client_ref: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     message_count: int = 0
@@ -149,6 +166,7 @@ def _coerce_session_doc(doc: dict) -> dict:
         "session_id": doc.get("session_id", ""),
         "user_id": doc.get("user_id", ""),
         "title": doc.get("title") or "Untitled",
+        "client_ref": doc.get("client_ref"),
         "created_at": doc.get("created_at") or utc_now(),
         "updated_at": doc.get("updated_at") or utc_now(),
         "message_count": effective_count,
@@ -183,6 +201,7 @@ def create_session(
         "session_id": str(uuid.uuid4()),
         "user_id": current_user["username"],
         "title": data.title,
+        "client_ref": data.client_ref,
         "created_at": now,
         "updated_at": now,
         "message_count": 0,
@@ -236,6 +255,7 @@ def list_sessions(
                 results.append(SessionSummary(
                     session_id=doc.get("session_id", ""),
                     title=doc.get("title") or "Untitled",
+                    client_ref=doc.get("client_ref"),
                     created_at=doc.get("created_at"),
                     updated_at=doc.get("updated_at"),
                     message_count=doc.get("message_count") or len(doc.get("messages", [])),
@@ -273,6 +293,7 @@ def search_sessions(q: str, current_user: dict = Depends(get_current_user)):
     sessions_cursor = collection.find(
         {"user_id": user_id, "$or": [
             {"title": regex},
+            {"client_ref": regex},
             {"messages.content": regex},
         ]},
         {"_id": 0, "messages": 0}
@@ -284,6 +305,7 @@ def search_sessions(q: str, current_user: dict = Depends(get_current_user)):
             results.append(SessionSummary(
                 session_id=doc.get("session_id", ""),
                 title=doc.get("title") or "Untitled",
+                client_ref=doc.get("client_ref"),
                 created_at=doc.get("created_at"),
                 updated_at=doc.get("updated_at"),
                 message_count=doc.get("message_count", 0),
@@ -291,6 +313,21 @@ def search_sessions(q: str, current_user: dict = Depends(get_current_user)):
         except Exception:
             continue
     return results
+
+
+# =============================================================================
+# LIST CLIENT/MATTER TAGS (for autocomplete on the tagging UI)
+# NOTE: Must stay above /{session_id} for the same reason as /search above.
+# =============================================================================
+
+@router.get("/client-refs")
+def list_client_refs(current_user: dict = Depends(get_current_user)):
+    collection = get_session_collection()
+    if collection is None:
+        return {"client_refs": []}
+    user_id = current_user["username"]
+    refs = collection.distinct("client_ref", {"user_id": user_id, "client_ref": {"$nin": [None, ""]}})
+    return {"client_refs": sorted(refs, key=str.lower)}
 
 
 # =============================================================================
@@ -363,6 +400,39 @@ def rename_session(session_id: str, data: SessionRename, current_user: dict = De
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session_id": session_id, "title": data.title}
+
+
+# =============================================================================
+# SET CLIENT/MATTER TAG
+# Separate from rename deliberately — a client can have several differently
+# -titled sessions that should still share the same tag (and, later, the same
+# remembered context).
+# =============================================================================
+
+class SessionClientRef(BaseModel):
+    client_ref: Optional[str] = Field(default=None, max_length=120)
+
+    @field_validator("client_ref")
+    @classmethod
+    def validate_client_ref(cls, v):
+        if v is None:
+            return None
+        v = v.strip()
+        return v[:120] if v else None
+
+@router.patch("/{session_id}/client-ref")
+def set_session_client_ref(session_id: str, data: SessionClientRef, current_user: dict = Depends(get_current_user)):
+    collection = get_session_collection()
+    if collection is None:
+        return {"session_id": session_id, "client_ref": data.client_ref}
+    user_id = current_user["username"]
+    result = collection.update_one(
+        {"session_id": session_id, "user_id": user_id},
+        {"$set": {"client_ref": data.client_ref, "updated_at": utc_now()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "client_ref": data.client_ref}
 
 
 # =============================================================================
