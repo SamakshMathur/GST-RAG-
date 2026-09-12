@@ -63,6 +63,7 @@ interface Message {
   current_status?: string;
   isHistory?: boolean;
   responseId?: string;  // generated once at creation (see handleAsk) — never in LetaResponse's render
+  attachment?: { url: string; name: string; isImage: boolean };  // travels with the message it was sent with, like ChatGPT — not just a pre-send pill
 }
 
 interface OpenDoc {
@@ -313,6 +314,12 @@ const LetaWorkspace: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  // Object URLs created for image-attachment thumbnails in the message log —
+  // revoked on unmount rather than per-message, since a session's worth of
+  // attached screenshots is small and freeing them mid-conversation risks
+  // revoking one still on screen (e.g. after a re-render/history reload).
+  const attachmentUrlsRef = useRef<string[]>([]);
+  useEffect(() => () => { attachmentUrlsRef.current.forEach(u => URL.revokeObjectURL(u)); }, []);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
   // Document Viewer splits
@@ -861,7 +868,20 @@ const LetaWorkspace: React.FC = () => {
     const activeQuery = typeof queryOverride === 'string' ? queryOverride : query;
     if (!activeQuery.trim() && !selectedFile) return;
 
-    const userMsg: Message = { role: 'user', content: activeQuery || (selectedFile ? `[Attached: ${selectedFile.name}]` : '') };
+    const isImageAttachment = !!selectedFile && selectedFile.type.startsWith('image/');
+    let attachment: Message['attachment'] | undefined;
+    if (selectedFile) {
+      const url = URL.createObjectURL(selectedFile);
+      attachmentUrlsRef.current.push(url);
+      attachment = { url, name: selectedFile.name, isImage: isImageAttachment };
+    }
+    const userMsg: Message = {
+      role: 'user',
+      // With an attachment, an empty question is fine — the image/file itself
+      // is the message, same as sending a bare screenshot in ChatGPT.
+      content: activeQuery,
+      attachment,
+    };
 
     // Keep stream state keyed to its session so navigating away does not stop it.
     let streamSessionKey = currentSessionId || `pending-${Date.now()}`;
@@ -891,7 +911,17 @@ const LetaWorkspace: React.FC = () => {
     // free of side effects/randomness; generating the ID in this event
     // handler and carrying it on the message object is the actual fix, not
     // just guarding the old in-render Math.random() call with a ref.
-    updateStreamMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', confidence: 0.95, citations: [], responseId: crypto.randomUUID() }]);
+    updateStreamMessages(prev => [...prev, userMsg, {
+      role: 'assistant',
+      content: '',
+      confidence: 0.95,
+      citations: [],
+      responseId: crypto.randomUUID(),
+      // Shown immediately, before the backend's first real __STATUS__ chunk
+      // arrives, so an attached image doesn't just sit under the generic
+      // "Initializing Statutory Analyzer..." loader.
+      current_status: isImageAttachment ? 'Analyzing image…' : undefined,
+    }]);
     if (!currentSessionId) setMessages(sessionMessagesRef.current.get(streamSessionKey) || []);
     setQuery('');
     setIsLoading(true);
@@ -973,8 +1003,23 @@ const LetaWorkspace: React.FC = () => {
         // File upload path: keep SSE streaming for /ask-with-file
         const formData = new FormData();
         formData.append('file', selectedFile);
-        formData.append('question', userMsg.content);
+        // A bare attachment with no typed question still needs real question
+        // text server-side (drives retrieval + the prompt) — the chat bubble
+        // itself stays empty/attachment-only, matching what the user actually typed.
+        const questionForBackend = userMsg.content || (
+          isImageAttachment
+            ? 'Please analyze this image and explain what it shows.'
+            : `Please analyze the attached file (${selectedFile.name}) and summarize it.`
+        );
+        formData.append('question', questionForBackend);
         if (activeSessionId) formData.append('session_id', activeSessionId);
+        // The file is already captured in formData (and in pendingRetryRef,
+        // for the visibilitychange auto-retry above) — clear the composer's
+        // attachment pill now instead of waiting for the full response.
+        // Otherwise it sits pinned above the input for the whole generation,
+        // duplicating the thumbnail that now travels with the sent message.
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
         // Placeholder assistant bubble already added immediately after the
         // user message, above — don't add a second one here.
         streamingSessionsRef.current.add(streamSessionKey);
@@ -1817,9 +1862,25 @@ const LetaWorkspace: React.FC = () => {
                       >
                         {isUser ? (
                           <div className="max-w-[70%] rounded-2xl px-4 py-3 shadow-md" style={{ background: 'rgba(79,183,197,0.07)', border: '1px solid rgba(79,183,197,0.12)' }}>
-                            <p className="whitespace-pre-wrap leading-relaxed text-sm text-[#E4E4E7]">
-                              {msg.content}
-                            </p>
+                            {msg.attachment && (
+                              msg.attachment.isImage ? (
+                                <img
+                                  src={msg.attachment.url}
+                                  alt={msg.attachment.name}
+                                  className={`max-w-full max-h-64 rounded-lg border border-white/10 object-contain ${msg.content ? 'mb-2' : ''}`}
+                                />
+                              ) : (
+                                <div className={`flex items-center gap-2 px-2.5 py-2 rounded-lg bg-black/20 border border-white/10 ${msg.content ? 'mb-2' : ''}`}>
+                                  <FileText size={14} className="text-[#4FB7C5] flex-shrink-0" />
+                                  <span className="text-xs text-[#A7B3C2] truncate">{msg.attachment.name}</span>
+                                </div>
+                              )
+                            )}
+                            {msg.content && (
+                              <p className="whitespace-pre-wrap leading-relaxed text-sm text-[#E4E4E7]">
+                                {msg.content}
+                              </p>
+                            )}
                           </div>
                         ) : (
                           /* Assistant message */
