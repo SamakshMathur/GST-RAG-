@@ -5,7 +5,7 @@ import {
   X, Send, Sparkles, Menu, Paperclip,
   ChevronLeft, Folder, Star, Landmark, FileCheck,
   Bookmark, BookmarkCheck, Trash2, Calendar, ShieldCheck, Plus, Square, Upload,
-  ArrowLeft, Eye, Mic, MicOff, FileText
+  ArrowLeft, Eye, Mic, MicOff, FileText, Tag
 } from 'lucide-react';
 import { AXIOS_INSTANCE as axios } from '../utils/api';
 import { BASE_URL } from '../config/api';
@@ -41,6 +41,7 @@ import { SessionClock } from '../components/layout';
 interface Session {
   session_id: string;
   title: string;
+  client_ref?: string | null;
   updated_at: string;
 }
 
@@ -343,6 +344,39 @@ const LetaWorkspace: React.FC = () => {
     setRenamingId(null);
     try {
       await axios.patch(`${BASE_URL}/api/sessions/${sessionId}/rename`, { title: trimmed }, { headers: getAuthHeaders() });
+    } catch { fetchSessions(); }
+  };
+
+  // ─── Client / matter tag state ─────────────────────────────────────────────
+  // Deliberately separate from title/rename — a client can have several
+  // differently-titled sessions that should still share the same tag (and,
+  // later, the same remembered context).
+  const [clientRefEditingId, setClientRefEditingId] = useState<string | null>(null);
+  const [clientRefValue, setClientRefValue] = useState('');
+  const [clientRefSuggestions, setClientRefSuggestions] = useState<string[]>([]);
+
+  const fetchClientRefSuggestions = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/api/sessions/client-refs`, { headers: getAuthHeaders() });
+      setClientRefSuggestions(res.data?.client_refs || []);
+    } catch (err) {
+      console.error('Failed to fetch client-ref suggestions:', err);
+    }
+  };
+
+  const handleClientRefStart = (session: Session) => {
+    setClientRefEditingId(session.session_id);
+    setClientRefValue(session.client_ref || '');
+  };
+
+  const handleClientRefCommit = async (sessionId: string) => {
+    const trimmed = clientRefValue.trim();
+    const next = trimmed || null;
+    setSessions(prev => prev.map(s => s.session_id === sessionId ? { ...s, client_ref: next } : s));
+    setClientRefEditingId(null);
+    try {
+      await axios.patch(`${BASE_URL}/api/sessions/${sessionId}/client-ref`, { client_ref: next }, { headers: getAuthHeaders() });
+      if (next && !clientRefSuggestions.includes(next)) fetchClientRefSuggestions();
     } catch { fetchSessions(); }
   };
 
@@ -688,6 +722,7 @@ const LetaWorkspace: React.FC = () => {
       }
     };
     initSessions();
+    fetchClientRefSuggestions();
     const interval = setInterval(fetchSessions, 60000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1590,11 +1625,16 @@ const LetaWorkspace: React.FC = () => {
                         </div>
                       ) : (
                         sessions
-                          .filter(s => !sidebarSearch || s.title.toLowerCase().includes(sidebarSearch.toLowerCase()))
+                          .filter(s => {
+                            if (!sidebarSearch) return true;
+                            const q = sidebarSearch.toLowerCase();
+                            return s.title.toLowerCase().includes(q) || (s.client_ref || '').toLowerCase().includes(q);
+                          })
                           .map(session => {
                           const meta = getSessionDetails(session.title);
                           const isSelected = currentSessionId === session.session_id;
                           const isRenaming = renamingId === session.session_id;
+                          const isTaggingClient = clientRefEditingId === session.session_id;
                           return (
                             <div
                               key={session.session_id}
@@ -1631,6 +1671,44 @@ const LetaWorkspace: React.FC = () => {
                                     >
                                       {session.title}
                                     </h3>
+                                  )}
+                                  {isTaggingClient ? (
+                                    <div onClick={e => e.stopPropagation()} className="mt-1.5">
+                                      <input
+                                        autoFocus
+                                        list={`client-refs-${session.session_id}`}
+                                        value={clientRefValue}
+                                        onChange={e => setClientRefValue(e.target.value)}
+                                        onBlur={() => handleClientRefCommit(session.session_id)}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') handleClientRefCommit(session.session_id);
+                                          if (e.key === 'Escape') setClientRefEditingId(null);
+                                        }}
+                                        placeholder="Client / matter, e.g. ABC Pvt Ltd"
+                                        className="w-full bg-transparent border-b border-[#4FB7C5]/40 text-[10px] text-white focus:outline-none pb-0.5"
+                                      />
+                                      <datalist id={`client-refs-${session.session_id}`}>
+                                        {clientRefSuggestions.map(ref => <option key={ref} value={ref} />)}
+                                      </datalist>
+                                    </div>
+                                  ) : session.client_ref ? (
+                                    <button
+                                      onDoubleClick={e => { e.stopPropagation(); handleClientRefStart(session); }}
+                                      onClick={e => e.stopPropagation()}
+                                      title="Double-click to change"
+                                      className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[#4FB7C5]/10 border border-[#4FB7C5]/20 text-[9px] font-mono text-[#4FB7C5] max-w-full truncate"
+                                    >
+                                      <Tag size={9} className="flex-shrink-0" />
+                                      <span className="truncate">{session.client_ref}</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={e => { e.stopPropagation(); handleClientRefStart(session); }}
+                                      className="mt-1.5 opacity-0 group-hover:opacity-100 inline-flex items-center gap-1 text-[9px] font-mono text-[#475569] hover:text-[#4FB7C5] transition-opacity"
+                                    >
+                                      <Tag size={9} />
+                                      Tag client
+                                    </button>
                                   )}
                                   <div className="flex items-center gap-2 mt-2">
                                     <span className="text-[9px] font-mono text-[#52525B] flex items-center gap-1">
